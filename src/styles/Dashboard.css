@@ -1,0 +1,200 @@
+/* Dashboard.module.css (corrigido com os mesmos nomes usados no JSX) */
+
+.dashboard-container {
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+/* Header */
+.dashboard-header h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 8px;
+}
+
+.dashboard-header p {
+  color: #94a3b8;
+}
+
+/* Stats Grid */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 24px;
+}
+
+.stat-card {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 12px;
+  padding: 24px;
+  transition: 0.3s;
+}
+
+.stat-card:hover {
+  border-color: #334155;
+}
+
+.stat-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.stat-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Colors */
+.emerald { background: rgba(52, 211, 153, 0.1); color: #34d399; }
+.blue { background: rgba(59,130,246,0.1); color: #3b82f6; }
+.amber { background: rgba(245,158,11,0.1); color: #f59e0b; }
+.red { background: rgba(248,113,113,0.1); color: #ef4444; }
+
+.stat-value {
+  color: white;
+  font-size: 1.8rem;
+  font-weight: 700;
+}
+
+
+
+.trend-down {
+  color: #94a3b8;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.trend-warning {
+  color: #f87171;
+  font-size: 0.85rem;
+}
+
+/* Panels */
+.panel {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.panel-header.warning {
+  gap: 8px;
+}
+
+.warning-icon { color: #ef4444; }
+
+.tag-green {
+  color: #34d399;
+}
+
+/* Recent Sales */
+.sale-item {
+  background: rgba(30, 41, 59, 0.5);
+  padding: 16px;
+  border-radius: 10px;
+  display: flex;
+  justify-content: space-between;
+  transition: 0.2s;
+}
+
+.sale-item:hover {
+  background: #1e293b;
+}
+
+.sale-title { color: white; font-weight: 500; }
+.sale-sub { font-size: 0.85rem; color: #94a3b8; }
+.sale-total { font-weight: 600; color: #34d399; }
+
+/* Estoque Baixo */
+.stock-item {
+  background: rgba(30,41,59,0.5);
+  border: 1px solid #f8717133;
+  padding: 16px;
+  border-radius: 10px;
+}
+
+.stock-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.stock-name { color: white; font-weight: 500; }
+.stock-brand {
+  background: #334155;
+  color: #cbd5e1;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+}
+
+.stock-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.stock-fill {
+  background: #ef4444;
+  height: 8px;
+  border-radius: 6px;
+  flex: 1;
+}
+
+.stock-qty {
+  font-size: 0.9rem;
+  color: #f87171;
+  font-weight: 500;
+}
+
+/* Payment */
+.payment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 24px;
+}
+
+.payment-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.payment-method { color: #94a3b8; }
+.payment-amount { color: white; font-weight: 600; }
+
+.payment-bar {
+  background: #1e293b;
+  height: 12px;
+  border-radius: 10px;
+  width: 100%;
+  overflow: hidden;
+}
+
+.payment-fill {
+  height: 12px;
+  border-radius: 10px;
+}
+
+.payment-fill.emerald { background: #34d399; }
+.payment-fill.blue { background: #3b82f6; }
+.payment-fill.amber { background: #f59e0b; }
