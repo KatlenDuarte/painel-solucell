@@ -16,10 +16,11 @@ import {
 
 import Dashboard from "./pages/Dashboard";
 import PinValidator from "./components/ProtectedRoute";
-import Sales from "./pages/Sales"; // Alterado para './pages/Sales'
+import Sales from "./pages/Sales";
 import Reports from "./pages/Reports";
 import ProductsContent from "./pages/Products";
 import LoginPage from "./pages/LoginPage";
+import logo from "./logo-solucell.png"
 
 import { auth } from "./lib/firebase";
 
@@ -31,7 +32,7 @@ interface UserInfo {
 function App() {
   const [currentPage, setCurrentPage] = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [darkMode, setDarkMode] = useState(true);
+  const [darkMode, setDarkMode] = useState(true); // Mantém o state inicial
 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<UserInfo>({
@@ -43,15 +44,16 @@ function App() {
   const [isProductsUnlocked, setProductsUnlocked] = useState(false);
   const [isReportsUnlocked, setReportsUnlocked] = useState(false);
 
-  // Carrega tema do localStorage
+  // Carrega tema do localStorage e define o padrão como CLARO
   useEffect(() => {
     const savedTheme = localStorage.getItem("theme");
-    if (savedTheme === "light") {
-      setDarkMode(false);
-      document.documentElement.classList.remove("dark");
-    } else {
+    // Se o tema salvo for "dark", ativa. Caso contrário (seja "light" ou null), desativa o DarkMode.
+    if (savedTheme === "dark") {
       setDarkMode(true);
       document.documentElement.classList.add("dark");
+    } else {
+      setDarkMode(false);
+      document.documentElement.classList.remove("dark");
     }
   }, []);
 
@@ -63,7 +65,7 @@ function App() {
       localStorage.setItem("theme", "dark");
     } else {
       document.documentElement.classList.remove("dark");
-      localStorage.setItem("theme", "light");
+      localStorage.setItem("theme", "light"); // Salva explicitamente "light"
     }
   };
 
@@ -93,7 +95,7 @@ function App() {
   ];
 
   const renderSettingsPage = () => (
-    <div className="p-8 dark:text-white">
+    <div className="p-8 text-slate-900 dark:text-white">
       <h2 className="text-3xl font-bold mb-6">Configurações ⚙️</h2>
       <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 p-6 rounded-xl shadow-lg text-center">
         <p className="text-lg text-slate-700 dark:text-slate-300">Em breve…</p>
@@ -146,18 +148,18 @@ function App() {
   };
 
   return (
-    <div className="bg-slate-50 dark:bg-slate-950 flex w-full">
+    <div className="bg-slate-100 dark:bg-slate-950 flex w-full">
       {isLoggedIn && (
         <aside
           className={`${sidebarOpen ? "w-64" : "w-0"
-            } bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 transition-all duration-300 overflow-hidden flex flex-col h-full fixed top-0 left-0 z-50`}
+            } bg-white dark:bg-slate-900 border-r border-slate-300 dark:border-slate-800 transition-all duration-300 overflow-hidden flex flex-col h-full fixed top-0 left-0 z-50`}
         >
           <div className="p-6">
             <div
               className={`${sidebarOpen ? "opacity-100" : "opacity-0"} transition-opacity`}
             >
-              <img src="/images/logo-solucell.png" className="w-40 h-auto" />
-              <p className="text-slate-600 dark:text-slate-400 text-xs mt-4">
+              <img src={logo} className="w-40 h-auto" />
+              <p className="text-slate-700 dark:text-slate-400 text-xs mt-4">
                 Painel Solucell
               </p>
             </div>
@@ -173,8 +175,8 @@ function App() {
                     key={item.id}
                     onClick={() => setCurrentPage(item.id)}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${active
-                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                      : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                      ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20"
+                      : "text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
                       } ${sidebarOpen ? "opacity-100" : "opacity-0"}`}
                   >
                     <Icon className="w-5 h-5" />
@@ -183,10 +185,11 @@ function App() {
                 );
               })}
             </nav>
+
           </div>
 
           <div
-            className={`p-6 border-t border-slate-200 dark:border-slate-800 ${sidebarOpen ? "opacity-100" : "opacity-0"
+            className={`p-6 border-t border-slate-300 dark:border-slate-800 ${sidebarOpen ? "opacity-100" : "opacity-0"
               }`}
           >
             <div className="flex items-center gap-3 mb-4">
@@ -216,10 +219,12 @@ function App() {
           }`}
       >
         {isLoggedIn && (
-          <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-6 py-4 flex items-center justify-between sticky top-0 z-40">
+          <header
+            className="bg-white dark:bg-slate-900 border-b border-slate-300 dark:border-slate-800 px-6 py-4 flex items-center justify-between sticky top-0 z-40"
+          >
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="text-slate-600 dark:text-slate-400"
+              className="text-slate-700 dark:text-slate-400"
             >
               {sidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>
@@ -227,9 +232,9 @@ function App() {
             <div className="flex items-center gap-4">
               <button
                 onClick={toggleTheme}
-                className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800"
+                className="p-2 rounded-lg bg-slate-200 dark:bg-slate-800"
               >
-                {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+                {darkMode ? <Sun className="w-5 h-5 text-white" /> : <Moon className="w-5 h-5 text-slate-800" />}
               </button>
             </div>
           </header>

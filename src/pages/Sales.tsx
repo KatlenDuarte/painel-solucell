@@ -13,7 +13,7 @@ import {
   Phone,
 } from "lucide-react";
 
-import { collection, getDocs, orderBy, query } from "firebase/firestore";
+import { collection, getDocs, orderBy, query, where } from "firebase/firestore";
 import { db } from "../lib/firebase";
 
 import RefundConfirmationModal from "../components/RefundConfirmationModal";
@@ -96,7 +96,11 @@ export default function Sales({ storeEmail }: SalesProps) {
   // Busca vendas no Firestore, ordenadas por timestamp desc, excluindo reembolsadas
   const fetchSalesFromFirestore = async () => {
     try {
-      const q = query(collection(db, "sales"), orderBy("timestamp", "desc"));
+      const q = query(
+        collection(db, "sales"),
+        where("store", "==", storeEmail),
+      );
+
       const snapshot = await getDocs(q);
 
       const list: SaleWithClient[] = snapshot.docs
@@ -399,8 +403,8 @@ export default function Sales({ storeEmail }: SalesProps) {
               key={f}
               onClick={() => setFilter(f as any)}
               className={`px-4 py-2 rounded-lg font-medium transition-all text-sm ${filter === f
-                  ? "bg-emerald-500 text-white shadow-md shadow-emerald-500/30"
-                  : "bg-slate-900 text-slate-400 hover:text-white border border-slate-800"
+                ? "bg-emerald-500 text-white shadow-md shadow-emerald-500/30"
+                : "bg-slate-900 text-slate-400 hover:text-white border border-slate-800"
                 }`}
             >
               {f === "all"
