@@ -81,7 +81,8 @@ const MetricCard: React.FC<MetricCardProps> = ({ icon, title, value, growth, ico
 export default function Reports() {
     const [sales, setSales] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
-    const [period, setPeriod] = useState("month")
+    const [period, setPeriod] = useState("day") // 🔥 padrão = Hoje
+
     const [storeFilter, setStoreFilter] = useState("all")
     const reportRef = useRef<HTMLDivElement>(null)
 

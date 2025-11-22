@@ -15,6 +15,11 @@ interface SaleData {
   total: number;
   paymentMethod: string;
   isFiado: boolean;
+  expectedPaymentDate?: string;      // ADICIONAR
+  distributedPayments?: Array<{     // ADICIONAR
+    method: string;
+    value: number;
+  }>;
   clientName?: string;
   clientPhone?: string;
   items: ProductSale[];
@@ -33,6 +38,7 @@ export const registerSaleAndAdjustStock = async (saleData: SaleData) => {
   await setDoc(newSaleRef, saleToSave);
 
   // 2) Para cada item vendido → reduzir estoque
+  
   for (const item of saleData.items) {
     const productRef = doc(db, "products", item.id);
     const productSnap = await getDoc(productRef);

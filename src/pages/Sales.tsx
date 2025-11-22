@@ -27,19 +27,26 @@ interface SaleItem {
   price: number;
 }
 
+interface DistributedPayment {
+  method: string;
+  value: number;
+}
+
 interface Sale {
   id: string;
   date: string;
   time: string;
   items: SaleItem[];
   total: number;
-  payment: string;
+  payment: string; // Ex: PIX, Dinheiro, Múltiplo, Fiado
   status: "completed" | "pending" | "refunded";
 }
 
 interface SaleWithClient extends Sale {
   clientName?: string;
   clientPhone?: string;
+  // Adicionado para suportar vendas com pagamento distribuído
+  distributedPayments?: DistributedPayment[];
 }
 
 interface SalesProps {
@@ -98,7 +105,7 @@ export default function Sales({ storeEmail }: SalesProps) {
     try {
       const q = query(
         collection(db, "sales"),
-        where("store", "==", storeEmail),
+        where("store", "==", storeEmail)
       );
 
       const snapshot = await getDocs(q);
@@ -127,10 +134,14 @@ export default function Sales({ storeEmail }: SalesProps) {
             status,
             clientName: data.clientName,
             clientPhone: data.clientPhone,
+            distributedPayments: data.distributedPayments || [],
           };
         })
-        // Exclui vendas reembolsadas da lista principal
-        .filter((sale) => sale.status !== "refunded");
+        .filter((sale) => sale.status !== "refunded")
+        .sort((a, b) => {
+          if (!a.dateObject || !b.dateObject) return 0;
+          return b.dateObject.getTime() - a.dateObject.getTime(); // 🔥 Mais recente primeiro
+        });
 
       setSales(list);
     } catch (error) {
@@ -138,9 +149,10 @@ export default function Sales({ storeEmail }: SalesProps) {
     }
   };
 
+
   useEffect(() => {
     fetchSalesFromFirestore();
-  }, []);
+  }, [storeEmail]);
 
   // Filtra vendas por período selecionado
   const filterSalesByPeriod = (salesList: SaleWithClient[]) => {
@@ -200,28 +212,50 @@ export default function Sales({ storeEmail }: SalesProps) {
   });
 
   // Calcula estatísticas por método de pagamento para os cards
+  // O card 'Outro/Múltiplo' foi removido, mas a chave 'Outro' é usada internamente para garantir
+  // que valores distribuídos de métodos não mapeados ou o valor total de pagamentos 'Outro' sejam contabilizados
+  // e a contagem de vendas Múltiplas não infle PIX/Cartão/Dinheiro.
   const paymentStatsMap: Record<string, { count: number; total: number }> = {
     PIX: { count: 0, total: 0 },
     Cartão: { count: 0, total: 0 },
     Dinheiro: { count: 0, total: 0 },
     Fiado: { count: 0, total: 0 },
+    Outro: { count: 0, total: 0 }, // Usado para armazenar o valor 'Outro' e contagem de vendas 'Múltiplo'
   };
 
   salesByPeriod.forEach((sale) => {
-    const method = sale.payment;
-    const total = sale.total;
     const status = sale.status;
 
-    // Conta vendas completas e pendentes Fiado no período
-    if (status === "completed" || (method.toLowerCase() === "fiado" && status === "pending")) {
-      if (paymentStatsMap[method]) {
+    // Apenas considera vendas completas e Fiado pendente
+    if (status === "completed" || (sale.payment.toLowerCase() === "fiado" && status === "pending")) {
+
+      // Se for MÚLTIPLO, distribuímos o VALOR e contamos a VENDA no 'Outro' (removido do display)
+      if (sale.payment === 'Múltiplo' && sale.distributedPayments && sale.distributedPayments.length > 0) {
+
+        // 1. Distribui o valor para os métodos
+        sale.distributedPayments.forEach(dp => {
+          // Garante que o método exista ou caia em 'Outro'
+          const method = dp.method in paymentStatsMap ? dp.method : 'Outro';
+
+          // Soma APENAS O VALOR (total) distribuído
+          paymentStatsMap[method].total += dp.value;
+        });
+
+        // 2. Conta a venda na categoria 'Outro' (para não duplicar a contagem de venda)
+        paymentStatsMap['Outro'].count += 1;
+
+      } else {
+        // Se for pagamento ÚNICO, somamos o total e a contagem normalmente
+        const method = sale.payment in paymentStatsMap ? sale.payment : 'Outro';
+
         paymentStatsMap[method].count += 1;
-        paymentStatsMap[method].total += total;
+        paymentStatsMap[method].total += sale.total;
       }
     }
   });
 
-  // Corrige Fiado nos cards pra mostrar só pendentes, usando lista completa
+
+  // Corrige Fiado nos cards pra mostrar só pendentes, usando lista completa (ignora o cálculo acima, usando os dados globais)
   paymentStatsMap["Fiado"].count = fiadoPendingCount;
   paymentStatsMap["Fiado"].total = fiadoPendingTotal;
 
@@ -247,6 +281,7 @@ export default function Sales({ storeEmail }: SalesProps) {
       total: paymentStatsMap["Dinheiro"].total,
       color: "amber",
     },
+    // O card 'Outro/Múltiplo' foi REMOVIDO daqui.
     {
       method: "Fiado",
       icon: BookOpenText,
@@ -261,6 +296,7 @@ export default function Sales({ storeEmail }: SalesProps) {
       case "PIX":
       case "Cartão":
       case "Dinheiro":
+      case "Múltiplo": // Adicionado Múltiplo aqui para o visual da lista
         return "bg-blue-500/10 text-blue-400 border-blue-500/20";
       case "Fiado":
         return "bg-red-500/10 text-red-400 border-red-500/20";
@@ -324,7 +360,6 @@ export default function Sales({ storeEmail }: SalesProps) {
         <NewSaleModal
           onClose={handleCloseNewSaleModal}
           storeEmail={storeEmail}
-          isOpen={true}
           onSaleComplete={async () => {
             await fetchSalesFromFirestore();
           }}
@@ -360,11 +395,20 @@ export default function Sales({ storeEmail }: SalesProps) {
       <hr className="my-6 border-slate-800" />
 
       {/* Payment Stats */}
+      {/* Ajustado para 4 colunas após a remoção de "Outro/Múltiplo" */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {paymentStats.map((stat) => {
           const Icon = stat.icon;
-          const iconBgClass = `bg-${stat.color}-500/10`;
-          const iconColorClass = `text-${stat.color}-500`;
+
+          // Corrigindo a geração de classes dinâmicas para Tailwind JIT
+          const colorMap: Record<string, string> = {
+            emerald: 'emerald',
+            blue: 'blue',
+            amber: 'amber',
+            red: 'red',
+            slate: 'slate',
+          };
+          const baseColor = colorMap[stat.color] || 'slate';
 
           return (
             <div
@@ -374,9 +418,18 @@ export default function Sales({ storeEmail }: SalesProps) {
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-3">
                   <div
-                    className={`w-8 h-8 ${iconBgClass} rounded-md flex items-center justify-center`}
+                    className={`w-8 h-8 rounded-md flex items-center justify-center 
+                                        ${baseColor === 'emerald' ? 'bg-emerald-500/10' :
+                        baseColor === 'blue' ? 'bg-blue-500/10' :
+                          baseColor === 'amber' ? 'bg-amber-500/10' :
+                            baseColor === 'red' ? 'bg-red-500/10' :
+                              'bg-slate-500/10'}`}
                   >
-                    <Icon className={`w-4 h-4 ${iconColorClass}`} />
+                    <Icon className={`w-4 h-4 ${baseColor === 'emerald' ? 'text-emerald-500' :
+                      baseColor === 'blue' ? 'text-blue-500' :
+                        baseColor === 'amber' ? 'text-amber-500' :
+                          baseColor === 'red' ? 'text-red-500' :
+                            'text-slate-500'}`} />
                   </div>
                   <h3 className="text-slate-300 text-sm font-semibold">{stat.method}</h3>
                 </div>
@@ -452,7 +505,7 @@ export default function Sales({ storeEmail }: SalesProps) {
               <div className="flex items-center gap-4">
                 <div
                   className={`w-10 h-10 rounded-lg flex items-center justify-center 
-                                        ${sale.payment === 'Fiado' && sale.status === 'pending'
+                                        ${sale.payment === 'Fiado' && sale.status === 'pending'
                       ? 'bg-red-500/10'
                       : 'bg-gradient-to-br from-emerald-500 to-emerald-600'}`}
                 >
@@ -549,7 +602,7 @@ export default function Sales({ storeEmail }: SalesProps) {
             <p className="text-xl font-extrabold text-white mt-1">{salesByPeriod.filter(s => s.status === 'completed' || s.status === 'pending').length}</p>
           </div>
           <div>
-            <p className="text-slate-400 text-sm uppercase">Valor Total (Recebido + Pendente)</p>
+            <p className="text-slate-400 text-sm uppercase">Valor Total (Vendas)</p>
             <p className="text-xl font-extrabold text-white mt-1">R$ {salesByPeriod.reduce((sum, s) => sum + s.total, 0).toFixed(2).replace('.', ',')}</p>
           </div>
           <div>

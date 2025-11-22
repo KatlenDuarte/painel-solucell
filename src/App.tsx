@@ -6,12 +6,13 @@ import {
   Package,
   ShoppingCart,
   BarChart3,
-  Settings,
+  Settings, // Ícone padrão para Configurações (e Manutenção Temporariamente)
   LogOut,
   Menu,
   X,
   Sun,
   Moon,
+  Wrench, // Adicionado Wrench (chave de manutenção) se disponível
 } from "lucide-react";
 
 import Dashboard from "./pages/Dashboard";
@@ -23,6 +24,7 @@ import LoginPage from "./pages/LoginPage";
 import logo from "./logo-solucell.png"
 
 import { auth } from "./lib/firebase";
+import Maintenance from "./pages/Maintenance";
 
 interface UserInfo {
   email: string;
@@ -90,6 +92,7 @@ function App() {
     { id: "dashboard", name: "Dashboard", icon: LayoutDashboard },
     { id: "products", name: "Produtos", icon: Package },
     { id: "sales", name: "Vendas", icon: ShoppingCart },
+    { id: "maintenance", name: "Manutenção", icon: Wrench }, // ADICIONADO AQUI
     { id: "reports", name: "Relatórios", icon: BarChart3 },
     { id: "settings", name: "Configurações", icon: Settings },
   ];
@@ -125,6 +128,9 @@ function App() {
       case "sales":
         // CORREÇÃO APLICADA: Passando storeEmail
         return <Sales storeEmail={currentUser.email} />;
+
+      case "maintenance":
+        return <Maintenance />;
 
       case "reports":
         return (
