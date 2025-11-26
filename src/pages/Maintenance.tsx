@@ -2,15 +2,21 @@ import React, { useState, useEffect, useCallback } from "react"
 import {
   Plus, Search, Filter, Wrench, Clock, CheckCircle, XCircle,
   AlertCircle, Calendar, DollarSign, Package, Phone, User,
-  Eye, Trash2
+  Eye, Trash2, Edit2, Zap, DollarSign as Dollar, Loader
 } from 'lucide-react'
 
 // ⚠️ ATUALIZAÇÕES:
-// Importar as funções do serviço
-import { fetchMaintenances, deleteMaintenance as deleteMaintenanceService } from '../services/maintenanceService'
+// Importar as funções do serviço. Você precisará implementar updateMaintenance no seu service!
+import {
+  fetchMaintenances,
+  deleteMaintenance as deleteMaintenanceService,
+  // ASSUMIMOS QUE VOCÊ VAI CRIAR ESTA FUNÇÃO NO SEU service/maintenanceService.ts
+  updateMaintenance as updateMaintenanceService
+} from '../services/maintenanceService'
 
 import AddMaintenanceModal from "../components/AddMaintenanceModal"
-import ViewMaintenanceModal from "../components/ViewMaintenanceModal"
+// RENOMEADO/ATUALIZADO: Este modal agora será responsável por VER e EDITAR.
+import EditMaintenanceModal from "../components/EditMaintenanceModal"
 
 interface Maintenance {
   id: string
@@ -30,7 +36,6 @@ interface Maintenance {
   notes?: string
 }
 
-// Simulação de hook de autenticação
 const useAuth = () => ({
   storeEmail: "minha-loja@exemplo.com"
 })
@@ -43,8 +48,9 @@ const MaintenancePage = () => {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [showAddModal, setShowAddModal] = useState(false)
-  const [showViewModal, setShowViewModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false) // NOVO: Estado para o Modal de Edição
   const [selectedMaintenance, setSelectedMaintenance] = useState<Maintenance | null>(null)
+  const [quickActionLoadingId, setQuickActionLoadingId] = useState<string | null>(null); // NOVO: Para desabilitar o botão durante a Ação Rápida
 
   const loadMaintenances = useCallback(async () => {
     if (!storeEmail) {
@@ -68,12 +74,12 @@ const MaintenancePage = () => {
   }, [loadMaintenances])
 
   useEffect(() => {
-    const isModalOpen = showAddModal || showViewModal
+    const isModalOpen = showAddModal || showEditModal // Atualizado para showEditModal
     document.body.classList.toggle("no-scroll", isModalOpen)
     return () => document.body.classList.remove("no-scroll")
-  }, [showAddModal, showViewModal])
+  }, [showAddModal, showEditModal])
 
-  const statusConfig = {
+  const statusConfig: { [key in Maintenance['status']]: { label: string, color: string, icon: any } } = {
     pending: { label: "Aguardando", color: "text-amber-600 bg-amber-500/10 border-amber-500/20 dark:text-amber-300 dark:bg-amber-800/20 dark:border-amber-700/50", icon: Clock },
     parts_ordered: { label: "Peça Pedida", color: "text-blue-600 bg-blue-500/10 border-blue-500/20 dark:text-blue-300 dark:bg-blue-800/20 dark:border-blue-700/50", icon: Package },
     in_progress: { label: "Em Reparo", color: "text-purple-600 bg-purple-500/10 border-purple-500/20 dark:text-purple-300 dark:bg-purple-800/20 dark:border-purple-700/50", icon: Wrench },
@@ -92,18 +98,22 @@ const MaintenancePage = () => {
     return matchesSearch && matchesStatus
   })
 
-  const openViewModal = (m: Maintenance) => {
+  // ✏️ FUNÇÃO PARA ABRIR O MODAL DE EDIÇÃO
+  const openEditModal = (m: Maintenance) => {
     setSelectedMaintenance(m)
-    setShowViewModal(true)
+    setShowEditModal(true)
   }
 
-  const handleAdd = (data: any) => {
+  // 📥 CALLBACK APÓS ADIÇÃO OU EDIÇÃO
+  const handleDataUpdate = () => {
     setShowAddModal(false)
+    setShowEditModal(false)
     loadMaintenances()
   }
 
+  // 🗑️ FUNÇÃO PARA DELETAR
   const handleDelete = async (id: string) => {
-    if (confirm("Tem certeza que deseja excluir esta manutenção?")) {
+    if (confirm("Tem certeza que deseja excluir esta manutenção? Esta ação é irreversível.")) {
       try {
         await deleteMaintenanceService(id)
         loadMaintenances()
@@ -113,6 +123,66 @@ const MaintenancePage = () => {
       }
     }
   }
+
+  // ⚡ AÇÃO RÁPIDA: Marcar/Desmarcar como Pago
+  const togglePaidStatus = async (maintenance: Maintenance) => {
+    setQuickActionLoadingId(maintenance.id);
+    const newPaidStatus = !maintenance.paid;
+
+    try {
+      await updateMaintenanceService(maintenance.id, { paid: newPaidStatus });
+
+      // Atualiza a lista localmente para feedback instantâneo (sem recarregar tudo)
+      setMaintenances(prev =>
+        prev.map(m => m.id === maintenance.id ? { ...m, paid: newPaidStatus } : m)
+      );
+
+    } catch (error) {
+      console.error("Erro ao atualizar status de pagamento:", error);
+      alert("Erro ao atualizar o status de pagamento.");
+    } finally {
+      setQuickActionLoadingId(null);
+    }
+  }
+
+  // ⚡ AÇÃO RÁPIDA: Mudar Status para o próximo (Ex: Pending -> In Progress)
+  // Nota: Isso é um exemplo simplificado, você pode querer implementar um seletor no modal.
+  const advanceStatus = async (maintenance: Maintenance) => {
+    const statusOrder: Maintenance['status'][] = [
+      "pending",
+      "parts_ordered",
+      "in_progress",
+      "completed"
+    ];
+
+    if (maintenance.status === "cancelled" || maintenance.status === "completed") {
+      alert("Não é possível avançar o status de uma manutenção Cancelada ou Concluída.");
+      return;
+    }
+
+    const currentIndex = statusOrder.indexOf(maintenance.status);
+    const nextIndex = currentIndex + 1;
+
+    if (nextIndex < statusOrder.length) {
+      setQuickActionLoadingId(maintenance.id);
+      const newStatus = statusOrder[nextIndex];
+
+      try {
+        await updateMaintenanceService(maintenance.id, { status: newStatus });
+
+        // Atualiza a lista localmente
+        setMaintenances(prev =>
+          prev.map(m => m.id === maintenance.id ? { ...m, status: newStatus } : m)
+        );
+      } catch (error) {
+        console.error("Erro ao avançar o status:", error);
+        alert("Erro ao avançar o status da manutenção.");
+      } finally {
+        setQuickActionLoadingId(null);
+      }
+    }
+  }
+
 
   return (
     <div className="p-4 sm:p-8 space-y-6">
@@ -139,7 +209,7 @@ const MaintenancePage = () => {
             <input
               type="text"
               placeholder="Buscar por cliente, aparelho ou problema..."
-              className="w-full pl-12 pr-4 py-3 rounded-lg bg-slate-50 border dark:bg-slate-700 dark:text-white dark:border-slate-600"
+              className="w-full pl-12 pr-4 py-3 rounded-lg bg-slate-50 border dark:bg-slate-700 dark:text-white dark:border-slate-600 focus:ring-emerald-500 focus:border-emerald-500"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
             />
@@ -148,7 +218,7 @@ const MaintenancePage = () => {
           <select
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value)}
-            className="px-4 py-3 rounded-lg bg-slate-50 border dark:bg-slate-700 dark:text-white dark:border-slate-600"
+            className="px-4 py-3 rounded-lg bg-slate-50 border dark:bg-slate-700 dark:text-white dark:border-slate-600 focus:ring-emerald-500 focus:border-emerald-500"
           >
             <option value="all">Todos os Status</option>
             {Object.entries(statusConfig).map(([key, config]) => (
@@ -182,7 +252,7 @@ const MaintenancePage = () => {
                 <th className="hidden md:table-cell px-4 py-3 text-left text-xs font-semibold dark:text-slate-400">Problema</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold dark:text-slate-400">Status</th>
                 <th className="hidden md:table-cell px-4 py-3 text-left text-xs font-semibold dark:text-slate-400">Entrega</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold dark:text-slate-400">Valor</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold dark:text-slate-400">Valor / Pago</th>
                 <th className="px-4 py-3 text-center text-xs font-semibold dark:text-slate-400">Ações</th>
               </tr>
             </thead>
@@ -190,9 +260,10 @@ const MaintenancePage = () => {
             <tbody className="divide-y dark:divide-slate-700">
               {filteredMaintenances.map(m => {
                 const StatusIcon = statusConfig[m.status].icon
+                const isLoading = quickActionLoadingId === m.id;
 
                 return (
-                  <tr key={m.id} className="dark:text-white">
+                  <tr key={m.id} className="dark:text-white hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
                     <td className="px-4 py-4">
                       <p className="font-medium">{m.customer}</p>
                       <p className="text-xs text-slate-500 dark:text-slate-400">{m.phone}</p>
@@ -214,23 +285,66 @@ const MaintenancePage = () => {
                       </span>
                     </td>
 
-                    <td className="hidden md:table-cell px-4 py-4">
+                    <td className="hidden md:table-cell px-4 py-4 text-slate-700 dark:text-slate-300">
                       {m.deliveryDate ? new Date(m.deliveryDate).toLocaleDateString("pt-BR") : "-"}
                     </td>
 
-                    <td className="px-4 py-4 font-semibold">
-                      R$ {m.value.toFixed(2)}
-                      <p className={`text-xs ${m.paid ? "text-emerald-500 dark:text-emerald-400" : "text-amber-500 dark:text-amber-400"}`}>
-                        {m.paid ? "Pago" : "Pendente"}
+                    <td className="px-4 py-4">
+                      <p className="font-semibold dark:text-white">
+                        R$ {m.value.toFixed(2)}
                       </p>
+                      {/* Botão de Ação Rápida: Pagar/Desmarcar */}
+                      <button
+                        onClick={() => togglePaidStatus(m)}
+                        disabled={isLoading}
+                        className={`text-xs font-semibold rounded-full p-1 transition-colors mt-1 inline-flex items-center gap-1 ${m.paid
+                            ? "text-emerald-700 bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-900/50 hover:bg-emerald-200"
+                            : "text-amber-700 bg-amber-100 dark:text-amber-400 dark:bg-amber-900/50 hover:bg-amber-200"
+                          } disabled:opacity-50`}
+                      >
+                        {isLoading ? (
+                          <Loader className="w-3 h-3 animate-spin" />
+                        ) : m.paid ? (
+                          <>
+                            <CheckCircle className="w-3 h-3" /> Pago
+                          </>
+                        ) : (
+                          <>
+                            <Dollar className="w-3 h-3" /> Pagar
+                          </>
+                        )}
+                      </button>
                     </td>
 
                     <td className="px-4 py-4">
                       <div className="flex justify-center gap-2">
-                        <button className="p-2 hover:bg-slate-100 rounded dark:hover:bg-slate-700" onClick={() => openViewModal(m)}>
-                          <Eye className="w-4 h-4 dark:text-white" />
+                        {/* Botão de Ação Rápida: Avançar Status */}
+                        {!['completed', 'cancelled'].includes(m.status) && (
+                          <button
+                            title="Avançar Status"
+                            onClick={() => advanceStatus(m)}
+                            disabled={isLoading}
+                            className="p-2 hover:bg-blue-100 rounded dark:hover:bg-blue-800/50 disabled:opacity-50 transition"
+                          >
+                            <Zap className="w-4 h-4 text-blue-500" />
+                          </button>
+                        )}
+
+                        {/* Botão de Edição (Abre o modal de edição) */}
+                        <button
+                          title="Editar Manutenção"
+                          className="p-2 hover:bg-slate-100 rounded dark:hover:bg-slate-700"
+                          onClick={() => openEditModal(m)}
+                        >
+                          <Edit2 className="w-4 h-4 text-slate-600 dark:text-slate-300" />
                         </button>
-                        <button className="p-2 hover:bg-slate-100 rounded dark:hover:bg-slate-700" onClick={() => handleDelete(m.id)}>
+
+                        {/* Botão de Deletar */}
+                        <button
+                          title="Excluir Manutenção"
+                          className="p-2 hover:bg-red-100 rounded dark:hover:bg-red-800/50"
+                          onClick={() => handleDelete(m.id)}
+                        >
                           <Trash2 className="w-4 h-4 text-red-500" />
                         </button>
                       </div>
@@ -243,21 +357,24 @@ const MaintenancePage = () => {
         </div>
       )}
 
+      {/* MODAIS */}
+
       {showAddModal && (
         <AddMaintenanceModal
           onClose={() => setShowAddModal(false)}
-          onSubmit={handleAdd}
+          onSubmit={handleDataUpdate} // Usa o callback genérico
           storeEmail={storeEmail}
         />
       )}
 
-      {showViewModal && selectedMaintenance && (
-        <ViewMaintenanceModal
+      {showEditModal && selectedMaintenance && (
+        <EditMaintenanceModal
           maintenance={selectedMaintenance}
           onClose={() => {
-            setShowViewModal(false)
+            setShowEditModal(false)
             setSelectedMaintenance(null)
           }}
+          onUpdate={handleDataUpdate} // Novo callback para recarregar após edição
         />
       )}
 

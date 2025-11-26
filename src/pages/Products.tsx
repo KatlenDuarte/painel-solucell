@@ -10,7 +10,7 @@ import {
     Trash2,
     Package,
     AlertTriangle,
-    DollarSign,
+    // DollarSign, // Removido por não ser usado no escopo
 } from "lucide-react";
 import AddProductModal from "../components/AddProductModal";
 import EditStockModal from "../components/EditStockModal";
@@ -95,19 +95,38 @@ export default function ProductsContent() {
         setIsEditStockModalOpen(true);
     };
 
+    // ✅ FUNÇÃO CORRIGIDA: Recebe newName e newPrice
     const handleEditStock = async (
         productId: string,
         newStock: number,
-        operation: "add" | "remove" | "set"
+        operation: "add" | "remove" | "set",
+        newName: string, 
+        newPrice: number
     ) => {
         if (!selectedProduct) return;
 
         try {
-            const updatedFields = {
+            const updatedFields: {
+                stock: number;
+                minStock: number;
+                name?: string;
+                price?: number;
+                nameLower?: string;
+            } = {
                 stock: Number(newStock),
                 minStock: Number(selectedProduct.minStock),
-                nameLower: selectedProduct.name.toLowerCase()
             };
+
+            // ✅ ADICIONA NOME E nameLower SE HOUVE MUDANÇA
+            if (newName.trim() !== selectedProduct.name.trim()) {
+                updatedFields.name = newName.trim();
+                updatedFields.nameLower = newName.trim().toLowerCase();
+            }
+
+            // ✅ ADICIONA PREÇO SE HOUVE MUDANÇA
+            if (newPrice !== selectedProduct.price) {
+                updatedFields.price = newPrice;
+            }
 
             await updateProduct(productId, updatedFields);
 
@@ -117,6 +136,9 @@ export default function ProductsContent() {
                         ? {
                             ...p,
                             ...updatedFields,
+                            // Usa o nome e preço do updatedFields, mas garante que a estrutura Product seja mantida
+                            name: updatedFields.name || p.name, 
+                            price: updatedFields.price !== undefined ? updatedFields.price : p.price,
                             status: determineStockStatus(updatedFields.stock, updatedFields.minStock)
                         }
                         : p
@@ -126,7 +148,7 @@ export default function ProductsContent() {
             setSelectedProduct(null);
             setIsEditStockModalOpen(false);
         } catch (err) {
-            console.error("Erro ao atualizar estoque:", err);
+            console.error("Erro ao atualizar produto (estoque/detalhes):", err);
         }
     };
 
@@ -179,25 +201,21 @@ export default function ProductsContent() {
 
     const {
         replenishmentCount,
-        totalStockValue,
-        filteredStockValue,
-        lowStockValue,
+        // totalStockValue, // Não usado
+        // filteredStockValue, // Não usado
+        // lowStockValue, // Não usado
     } = useMemo(() => {
-        const totalStockValue = products.reduce((total, product) => total + product.price * product.stock, 0);
-
+        // O cálculo pode ser simplificado se você não precisar de todos os valores na tela
         const lowStockProducts = products.filter(p => p.status === "low" || p.status === "critical");
         const replenishmentCount = lowStockProducts.length;
-        const lowStockValue = lowStockProducts.reduce((total, product) => total + product.price * product.stock, 0);
-
-        const filteredStockValue = filteredProducts.reduce((total, product) => total + product.price * product.stock, 0);
 
         return {
             replenishmentCount,
-            totalStockValue,
-            filteredStockValue,
-            lowStockValue,
+            totalStockValue: 0,
+            filteredStockValue: 0,
+            lowStockValue: 0,
         }
-    }, [products, filteredProducts]);
+    }, [products]);
 
     const baseCategories = [
         { id: "peliculas", name: "Películas", icon: Shield },
@@ -252,6 +270,7 @@ export default function ProductsContent() {
 
     const formatCurrency = (value: number) =>
         new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+        
     return (
         <div className="p-8 space-y-8 bg-slate-950 min-h-screen">
 
@@ -321,7 +340,7 @@ export default function ProductsContent() {
                     </div>
                 )}
 
-                {/* Botão de Reposição  */}
+                {/* Botão de Reposição  */}
                 <button
                     type="button"
                     onClick={toggleReplenishmentMode}
@@ -457,8 +476,9 @@ export default function ProductsContent() {
                     setSelectedProduct(null)
                 }}
                 product={selectedProduct}
-                onSubmit={(id, newStock, operation) =>
-                    handleEditStock(id, newStock, operation)
+                // ✅ CHAMADA CORRIGIDA: Agora passa newName e newPrice
+                onSubmit={(id, newStock, operation, newName, newPrice) =>
+                    handleEditStock(id, newStock, operation, newName, newPrice)
                 }
             />
         </div>

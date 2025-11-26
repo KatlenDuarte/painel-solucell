@@ -1,21 +1,28 @@
-import React, { useState, useEffect } from "react"
-import Modal from "./Modal"
-import { Package, Plus, Minus, AlertTriangle } from "lucide-react"
+import React, { useState, useEffect } from "react";
+import Modal from "./Modal";
+import { Package, Plus, Minus, AlertTriangle } from "lucide-react";
 
 interface Product {
-  id: string
-  name: string
-  brand: string
-  model: string
-  stock: number
-  minStock: number
+  id: string;
+  name: string;
+  brand: string;
+  model: string;
+  stock: number;
+  minStock: number;
+  price: number;
 }
 
 interface EditStockModalProps {
-  isOpen: boolean
-  onClose: () => void
-  product: Product | null
-  onSubmit: (productId: string, newStock: number, operation: "add" | "remove" | "set") => void
+  isOpen: boolean;
+  onClose: () => void;
+  product: Product | null;
+  onSubmit: (
+    productId: string,
+    newStock: number,
+    operation: "add" | "remove" | "set",
+    newName: string,
+    newPrice: number
+  ) => void;
 }
 
 export default function EditStockModal({
@@ -24,58 +31,66 @@ export default function EditStockModal({
   product,
   onSubmit,
 }: EditStockModalProps) {
-  const [operation, setOperation] = useState<"add" | "remove" | "set">("add")
-  const [quantity, setQuantity] = useState<string>("0")
-  const [newStock, setNewStock] = useState<number>(0)
+  const [operation, setOperation] = useState<"add" | "remove" | "set">("add");
+  const [quantity, setQuantity] = useState<string>("0");
+  const [newStock, setNewStock] = useState<number>(0);
+
+  const [newName, setNewName] = useState<string>("");
+  const [newPrice, setNewPrice] = useState<string>("0");
 
   useEffect(() => {
-    if (!product) return
+    if (!product) return;
 
-    const q = Number(quantity)
-    let result = product.stock
+    // Inicializa o nome e preço com os valores atuais do produto
+    setNewName(product.name);
+    setNewPrice(String(product.price));
 
-    if (operation === "add") result = product.stock + q
-    if (operation === "remove") result = product.stock - q
-    if (operation === "set") result = q
+    const q = Number(quantity);
+    let result = product.stock;
 
-    if (result < 0) result = 0
+    if (operation === "add") result = product.stock + q;
+    if (operation === "remove") result = product.stock - q;
+    if (operation === "set") result = q;
 
-    setNewStock(result)
-  }, [quantity, operation, product])
+    if (result < 0) result = 0;
 
-  if (!product) return null
+    setNewStock(result);
+  }, [quantity, operation, product]);
 
-  const isLowStock = newStock > 0 && newStock < product.minStock
-  const isCritical = newStock === 0
+  if (!product) return null;
+
+  const isLowStock = newStock > 0 && newStock < product.minStock;
+  const isCritical = newStock === 0;
 
   const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
+    e.preventDefault();
 
-    const q = Number(quantity)
+    const q = Number(quantity);
+    const updatedPrice = Number(newPrice);
 
     if (operation === "remove" && q > product.stock) {
-      alert("Você não pode remover mais do que o estoque atual!")
-      return
+      alert("Você não pode remover mais do que o estoque atual!");
+      return;
     }
 
-    // ✅ CORRETO — envia os dados certos para atualização no Firebase
-    onSubmit(product.id, newStock, operation)
+    onSubmit(product.id, newStock, operation, newName, updatedPrice);
 
-    onClose()
-  }
+    onClose();
+  };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Editar Estoque" size="md">
+    <Modal isOpen={isOpen} onClose={onClose} title="Editar Produto & Estoque" size="md">
       <form onSubmit={handleSubmit} className="p-6 space-y-6">
         
-        {/* INFO DO PRODUTO */}
+        {/* INFO DO PRODUTO (CORRIGIDO) */}
         <div className="bg-slate-800 border border-slate-700 rounded-xl p-4">
           <div className="flex items-start gap-4">
             <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-lg flex items-center justify-center flex-shrink-0">
               <Package className="w-6 h-6 text-white" />
             </div>
             <div className="flex-1">
-              <h3 className="text-white font-semibold text-lg">{product.name}</h3>
+              {/* ✅ CORREÇÃO AQUI: Usa 'newName' */}
+              <h3 className="text-white font-semibold text-lg">{newName}</h3>
               <p className="text-slate-400 text-sm">
                 {product.brand} - {product.model}
               </p>
@@ -85,18 +100,55 @@ export default function EditStockModal({
                   <p className="text-white font-bold text-xl">{product.stock}</p>
                 </div>
                 <div>
-                  <p className="text-slate-500 text-xs">Estoque Mínimo</p>
-                  <p className="text-slate-400 font-semibold">{product.minStock}</p>
+                  <p className="text-slate-500 text-xs">Preço Atual</p>
+                  {/* ✅ CORREÇÃO AQUI: Usa 'newPrice' */}
+                  <p className="text-white font-bold text-xl">R$ {Number(newPrice).toFixed(2)}</p>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
+        {/* CAMPOS DE EDIÇÃO DE DETALHES */}
+        <div className="space-y-4 pt-2 pb-4 border-b border-slate-800">
+          <h4 className="text-lg font-semibold text-slate-200">Detalhes do Produto</h4>
+          
+          {/* Campo para o Nome do Produto */}
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">
+              Nome do Produto
+            </label>
+            <input
+              type="text"
+              required
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-all"
+            />
+          </div>
+
+          {/* Campo para o Preço/Valor */}
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">
+              Preço Unitário (R$)
+            </label>
+            <input
+              type="number"
+              required
+              min="0"
+              step="0.01"
+              value={newPrice}
+              onChange={(e) => setNewPrice(e.target.value)}
+              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-all"
+            />
+          </div>
+        </div>
+        {/* FIM DOS NOVOS CAMPOS */}
+
         {/* TIPO DE OPERAÇÃO */}
         <div>
           <label className="block text-sm font-medium text-slate-300 mb-3">
-            Tipo de Operação
+            Tipo de Operação de Estoque
           </label>
 
           <div className="grid grid-cols-3 gap-3">
@@ -171,10 +223,10 @@ export default function EditStockModal({
           </div>
         </div>
 
-        {/* QUANTIDADE */}
+        {/* QUANTIDADE DE ESTOQUE */}
         <div>
           <label className="block text-sm font-medium text-slate-300 mb-2">
-            {operation === "set" ? "Nova Quantidade Total" : "Quantidade"}
+            {operation === "set" ? "Nova Quantidade Total" : "Quantidade de Movimentação"}
           </label>
           <input
             type="number"
@@ -252,5 +304,5 @@ export default function EditStockModal({
         </div>
       </form>
     </Modal>
-  )
+  );
 }

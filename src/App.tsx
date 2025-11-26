@@ -6,13 +6,13 @@ import {
   Package,
   ShoppingCart,
   BarChart3,
-  Settings, // Ícone padrão para Configurações (e Manutenção Temporariamente)
+  Settings,
   LogOut,
   Menu,
   X,
   Sun,
   Moon,
-  Wrench, // Adicionado Wrench (chave de manutenção) se disponível
+  Wrench,
 } from "lucide-react";
 
 import Dashboard from "./pages/Dashboard";
@@ -21,9 +21,10 @@ import Sales from "./pages/Sales";
 import Reports from "./pages/Reports";
 import ProductsContent from "./pages/Products";
 import LoginPage from "./pages/LoginPage";
-import logo from "./logo-solucell.png"
+import logo from "./logo-solucell.png";
 
 import { auth } from "./lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
 import Maintenance from "./pages/Maintenance";
 
 interface UserInfo {
@@ -31,10 +32,17 @@ interface UserInfo {
   role: string;
 }
 
+const VALID_STORES = [
+  "vilaesportiva@solucell.com",
+  "jardimdagloria@solucell.com",
+];
+
 function App() {
   const [currentPage, setCurrentPage] = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [darkMode, setDarkMode] = useState(true); // Mantém o state inicial
+
+  // Dark mode sempre ativo (fixo)
+  const [darkMode, setDarkMode] = useState(true);
 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<UserInfo>({
@@ -46,30 +54,31 @@ function App() {
   const [isProductsUnlocked, setProductsUnlocked] = useState(false);
   const [isReportsUnlocked, setReportsUnlocked] = useState(false);
 
-  // Carrega tema do localStorage e define o padrão como CLARO
+  // Manter dark mode fixo ao carregar
   useEffect(() => {
-    const savedTheme = localStorage.getItem("theme");
-    // Se o tema salvo for "dark", ativa. Caso contrário (seja "light" ou null), desativa o DarkMode.
-    if (savedTheme === "dark") {
-      setDarkMode(true);
-      document.documentElement.classList.add("dark");
-    } else {
-      setDarkMode(false);
-      document.documentElement.classList.remove("dark");
-    }
+    setDarkMode(true);
+    document.documentElement.classList.add("dark");
   }, []);
 
-  const toggleTheme = () => {
-    const newMode = !darkMode;
-    setDarkMode(newMode);
-    if (newMode) {
-      document.documentElement.classList.add("dark");
-      localStorage.setItem("theme", "dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-      localStorage.setItem("theme", "light"); // Salva explicitamente "light"
-    }
-  };
+  // Mantém usuário logado
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user && VALID_STORES.includes(user.email || "")) {
+        setCurrentUser({
+          email: user.email || "",
+          role: "Administrador",
+        });
+        setIsLoggedIn(true);
+      } else {
+        setIsLoggedIn(false);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Botão de tema não faz mais nada
+  const toggleTheme = () => {};
 
   const handleLogout = () => {
     setCurrentUser({ email: "", role: "" });
@@ -79,7 +88,6 @@ function App() {
     setCurrentPage("dashboard");
   };
 
-  // LOGIN CORRETO
   const handleLoginSuccess = (storeEmail: string) => {
     setCurrentUser({
       email: storeEmail,
@@ -92,7 +100,7 @@ function App() {
     { id: "dashboard", name: "Dashboard", icon: LayoutDashboard },
     { id: "products", name: "Produtos", icon: Package },
     { id: "sales", name: "Vendas", icon: ShoppingCart },
-    { id: "maintenance", name: "Manutenção", icon: Wrench }, // ADICIONADO AQUI
+    { id: "maintenance", name: "Manutenção", icon: Wrench },
     { id: "reports", name: "Relatórios", icon: BarChart3 },
     { id: "settings", name: "Configurações", icon: Settings },
   ];
@@ -126,7 +134,6 @@ function App() {
         );
 
       case "sales":
-        // CORREÇÃO APLICADA: Passando storeEmail
         return <Sales storeEmail={currentUser.email} />;
 
       case "maintenance":
@@ -141,7 +148,6 @@ function App() {
             storeEmail={currentUser.email}
           >
             <Reports storeEmail={currentUser.email} />
-
           </PinValidator>
         );
 
@@ -157,18 +163,19 @@ function App() {
     <div className="bg-slate-100 dark:bg-slate-950 flex w-full">
       {isLoggedIn && (
         <aside
-          className={`${sidebarOpen ? "w-64" : "w-0"
-            } bg-white dark:bg-slate-900 border-r border-slate-300 dark:border-slate-800 transition-all duration-300 overflow-hidden flex flex-col h-full fixed top-0 left-0 z-50`}
+          className={`${
+            sidebarOpen ? "w-64" : "w-0"
+          } bg-white dark:bg-slate-900 border-r border-slate-300 dark:border-slate-800 transition-all duration-300 overflow-hidden flex flex-col h-full fixed top-0 left-0 z-50`}
         >
           <div className="p-6">
-            <div
-              className={`${sidebarOpen ? "opacity-100" : "opacity-0"} transition-opacity`}
-            >
-              <img src={logo} className="w-40 h-auto" />
-              <p className="text-slate-700 dark:text-slate-400 text-xs mt-4">
-                Painel Solucell
-              </p>
-            </div>
+            {sidebarOpen && (
+              <>
+                <img src={logo} className="w-40 h-auto" />
+                <p className="text-slate-700 dark:text-slate-400 text-xs mt-4">
+                  Painel Solucell
+                </p>
+              </>
+            )}
           </div>
 
           <div className="flex-1 px-6">
@@ -180,10 +187,11 @@ function App() {
                   <button
                     key={item.id}
                     onClick={() => setCurrentPage(item.id)}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${active
-                      ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20"
-                      : "text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                      } ${sidebarOpen ? "opacity-100" : "opacity-0"}`}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+                      active
+                        ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20"
+                        : "text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    } ${sidebarOpen ? "opacity-100" : "opacity-0"}`}
                   >
                     <Icon className="w-5 h-5" />
                     <span>{item.name}</span>
@@ -191,15 +199,14 @@ function App() {
                 );
               })}
             </nav>
-
           </div>
 
           <div
-            className={`p-6 border-t border-slate-300 dark:border-slate-800 ${sidebarOpen ? "opacity-100" : "opacity-0"
-              }`}
+            className={`p-6 border-t border-slate-300 dark:border-slate-800 ${
+              sidebarOpen ? "opacity-100" : "opacity-0"
+            }`}
           >
             <div className="flex items-center gap-3 mb-4">
-
               <div>
                 <p className="text-slate-900 dark:text-white font-medium text-sm">
                   {currentUser.email}
@@ -221,18 +228,21 @@ function App() {
       )}
 
       <main
-        className={`flex-1 flex flex-col min-h-screen transition-all ${isLoggedIn && sidebarOpen ? "ml-64" : "ml-0"
-          }`}
+        className={`flex-1 flex flex-col min-h-screen transition-all ${
+          isLoggedIn && sidebarOpen ? "ml-64" : "ml-0"
+        }`}
       >
         {isLoggedIn && (
-          <header
-            className="bg-white dark:bg-slate-900 border-b border-slate-300 dark:border-slate-800 px-6 py-4 flex items-center justify-between sticky top-0 z-40"
-          >
+          <header className="bg-white dark:bg-slate-900 border-b border-slate-300 dark:border-slate-800 px-6 py-4 flex items-center justify-between sticky top-0 z-40">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
               className="text-slate-700 dark:text-slate-400"
             >
-              {sidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+              {sidebarOpen ? (
+                <X className="w-6 h-6" />
+              ) : (
+                <Menu className="w-6 h-6" />
+              )}
             </button>
 
             <div className="flex items-center gap-4">
@@ -240,7 +250,7 @@ function App() {
                 onClick={toggleTheme}
                 className="p-2 rounded-lg bg-slate-200 dark:bg-slate-800"
               >
-                {darkMode ? <Sun className="w-5 h-5 text-white" /> : <Moon className="w-5 h-5 text-slate-800" />}
+                <Sun className="w-5 h-5 text-white" />
               </button>
             </div>
           </header>
