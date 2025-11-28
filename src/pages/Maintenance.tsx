@@ -7,16 +7,16 @@ import {
 
 // ⚠️ ATUALIZAÇÕES:
 // Importar as funções do serviço. Você precisará implementar updateMaintenance no seu service!
-import {
-  fetchMaintenances,
-  deleteMaintenance as deleteMaintenanceService,
-  // ASSUMIMOS QUE VOCÊ VAI CRIAR ESTA FUNÇÃO NO SEU service/maintenanceService.ts
-  updateMaintenance as updateMaintenanceService
-} from '../services/maintenanceService'
+import { 
+    fetchMaintenances, 
+    deleteMaintenance as deleteMaintenanceService,
+    // ASSUMIMOS QUE VOCÊ VAI CRIAR ESTA FUNÇÃO NO SEU service/maintenanceService.ts
+    updateMaintenance as updateMaintenanceService 
+} from '../services/maintenanceService' 
 
 import AddMaintenanceModal from "../components/AddMaintenanceModal"
 // RENOMEADO/ATUALIZADO: Este modal agora será responsável por VER e EDITAR.
-import EditMaintenanceModal from "../components/EditMaintenanceModal"
+import EditMaintenanceModal from "../components/EditMaintenanceModal" 
 
 interface Maintenance {
   id: string
@@ -87,16 +87,24 @@ const MaintenancePage = () => {
     cancelled: { label: "Cancelado", color: "text-red-600 bg-red-500/10 border-red-500/20 dark:text-red-300 dark:bg-red-800/20 dark:border-red-700/50", icon: XCircle }
   }
 
-  const filteredMaintenances = maintenances.filter(m => {
-    const term = searchTerm.toLowerCase()
-    const matchesSearch =
-      m.customer.toLowerCase().includes(term) ||
-      m.device.toLowerCase().includes(term) ||
-      m.issue.toLowerCase().includes(term)
+  const filteredMaintenances = maintenances
+    .filter(m => {
+      const term = searchTerm.toLowerCase()
+      const matchesSearch =
+        m.customer.toLowerCase().includes(term) ||
+        m.device.toLowerCase().includes(term) ||
+        m.issue.toLowerCase().includes(term)
 
-    const matchesStatus = statusFilter === "all" || m.status === statusFilter
-    return matchesSearch && matchesStatus
-  })
+      const matchesStatus = statusFilter === "all" || m.status === statusFilter
+      return matchesSearch && matchesStatus
+    })
+    .sort((a, b) => {
+      // Converte as strings de data/hora para objetos Date e subtrai.
+      // b.createdAt - a.createdAt resulta em ordem decrescente (mais recente primeiro).
+      const dateA = new Date(a.createdAt).getTime();
+      const dateB = new Date(b.createdAt).getTime();
+      return dateB - dateA;
+    });
 
   // ✏️ FUNÇÃO PARA ABRIR O MODAL DE EDIÇÃO
   const openEditModal = (m: Maintenance) => {
@@ -130,18 +138,18 @@ const MaintenancePage = () => {
     const newPaidStatus = !maintenance.paid;
 
     try {
-      await updateMaintenanceService(maintenance.id, { paid: newPaidStatus });
-
-      // Atualiza a lista localmente para feedback instantâneo (sem recarregar tudo)
-      setMaintenances(prev =>
-        prev.map(m => m.id === maintenance.id ? { ...m, paid: newPaidStatus } : m)
-      );
+        await updateMaintenanceService(maintenance.id, { paid: newPaidStatus });
+        
+        // Atualiza a lista localmente para feedback instantâneo (sem recarregar tudo)
+        setMaintenances(prev => 
+            prev.map(m => m.id === maintenance.id ? { ...m, paid: newPaidStatus } : m)
+        );
 
     } catch (error) {
-      console.error("Erro ao atualizar status de pagamento:", error);
-      alert("Erro ao atualizar o status de pagamento.");
+        console.error("Erro ao atualizar status de pagamento:", error);
+        alert("Erro ao atualizar o status de pagamento.");
     } finally {
-      setQuickActionLoadingId(null);
+        setQuickActionLoadingId(null);
     }
   }
 
@@ -149,37 +157,37 @@ const MaintenancePage = () => {
   // Nota: Isso é um exemplo simplificado, você pode querer implementar um seletor no modal.
   const advanceStatus = async (maintenance: Maintenance) => {
     const statusOrder: Maintenance['status'][] = [
-      "pending",
-      "parts_ordered",
-      "in_progress",
-      "completed"
+        "pending", 
+        "parts_ordered", 
+        "in_progress", 
+        "completed"
     ];
 
     if (maintenance.status === "cancelled" || maintenance.status === "completed") {
-      alert("Não é possível avançar o status de uma manutenção Cancelada ou Concluída.");
-      return;
+        alert("Não é possível avançar o status de uma manutenção Cancelada ou Concluída.");
+        return;
     }
 
     const currentIndex = statusOrder.indexOf(maintenance.status);
     const nextIndex = currentIndex + 1;
 
     if (nextIndex < statusOrder.length) {
-      setQuickActionLoadingId(maintenance.id);
-      const newStatus = statusOrder[nextIndex];
+        setQuickActionLoadingId(maintenance.id);
+        const newStatus = statusOrder[nextIndex];
 
-      try {
-        await updateMaintenanceService(maintenance.id, { status: newStatus });
-
-        // Atualiza a lista localmente
-        setMaintenances(prev =>
-          prev.map(m => m.id === maintenance.id ? { ...m, status: newStatus } : m)
-        );
-      } catch (error) {
-        console.error("Erro ao avançar o status:", error);
-        alert("Erro ao avançar o status da manutenção.");
-      } finally {
-        setQuickActionLoadingId(null);
-      }
+        try {
+            await updateMaintenanceService(maintenance.id, { status: newStatus });
+            
+            // Atualiza a lista localmente
+            setMaintenances(prev => 
+                prev.map(m => m.id === maintenance.id ? { ...m, status: newStatus } : m)
+            );
+        } catch (error) {
+            console.error("Erro ao avançar o status:", error);
+            alert("Erro ao avançar o status da manutenção.");
+        } finally {
+            setQuickActionLoadingId(null);
+        }
     }
   }
 
@@ -200,6 +208,8 @@ const MaintenancePage = () => {
           <Plus /> Nova Manutenção
         </button>
       </div>
+
+      ---
 
       {/* SEARCH + FILTERS */}
       <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border dark:border-slate-700">
@@ -228,6 +238,9 @@ const MaintenancePage = () => {
         </div>
       </div>
 
+      ---
+
+      {/* LISTA DE MANUTENÇÕES */}
       {loading && (
         <div className="text-center py-8 dark:text-slate-400">
           <Wrench className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-500" />
@@ -294,24 +307,25 @@ const MaintenancePage = () => {
                         R$ {m.value.toFixed(2)}
                       </p>
                       {/* Botão de Ação Rápida: Pagar/Desmarcar */}
-                      <button
+                      <button 
                         onClick={() => togglePaidStatus(m)}
                         disabled={isLoading}
-                        className={`text-xs font-semibold rounded-full p-1 transition-colors mt-1 inline-flex items-center gap-1 ${m.paid
-                            ? "text-emerald-700 bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-900/50 hover:bg-emerald-200"
-                            : "text-amber-700 bg-amber-100 dark:text-amber-400 dark:bg-amber-900/50 hover:bg-amber-200"
-                          } disabled:opacity-50`}
+                        className={`text-xs font-semibold rounded-full p-1 transition-colors mt-1 inline-flex items-center gap-1 ${
+                            m.paid 
+                                ? "text-emerald-700 bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-900/50 hover:bg-emerald-200" 
+                                : "text-amber-700 bg-amber-100 dark:text-amber-400 dark:bg-amber-900/50 hover:bg-amber-200"
+                        } disabled:opacity-50`}
                       >
                         {isLoading ? (
-                          <Loader className="w-3 h-3 animate-spin" />
+                            <Loader className="w-3 h-3 animate-spin" />
                         ) : m.paid ? (
-                          <>
-                            <CheckCircle className="w-3 h-3" /> Pago
-                          </>
+                            <>
+                                <CheckCircle className="w-3 h-3" /> Pago
+                            </>
                         ) : (
-                          <>
-                            <Dollar className="w-3 h-3" /> Pagar
-                          </>
+                            <>
+                                <Dollar className="w-3 h-3" /> Pagar
+                            </>
                         )}
                       </button>
                     </td>
@@ -320,30 +334,30 @@ const MaintenancePage = () => {
                       <div className="flex justify-center gap-2">
                         {/* Botão de Ação Rápida: Avançar Status */}
                         {!['completed', 'cancelled'].includes(m.status) && (
-                          <button
-                            title="Avançar Status"
-                            onClick={() => advanceStatus(m)}
-                            disabled={isLoading}
-                            className="p-2 hover:bg-blue-100 rounded dark:hover:bg-blue-800/50 disabled:opacity-50 transition"
-                          >
-                            <Zap className="w-4 h-4 text-blue-500" />
-                          </button>
+                            <button 
+                                title="Avançar Status"
+                                onClick={() => advanceStatus(m)}
+                                disabled={isLoading}
+                                className="p-2 hover:bg-blue-100 rounded dark:hover:bg-blue-800/50 disabled:opacity-50 transition"
+                            >
+                                <Zap className="w-4 h-4 text-blue-500" />
+                            </button>
                         )}
 
                         {/* Botão de Edição (Abre o modal de edição) */}
-                        <button
-                          title="Editar Manutenção"
-                          className="p-2 hover:bg-slate-100 rounded dark:hover:bg-slate-700"
-                          onClick={() => openEditModal(m)}
+                        <button 
+                            title="Editar Manutenção"
+                            className="p-2 hover:bg-slate-100 rounded dark:hover:bg-slate-700" 
+                            onClick={() => openEditModal(m)}
                         >
                           <Edit2 className="w-4 h-4 text-slate-600 dark:text-slate-300" />
                         </button>
-
+                        
                         {/* Botão de Deletar */}
-                        <button
-                          title="Excluir Manutenção"
-                          className="p-2 hover:bg-red-100 rounded dark:hover:bg-red-800/50"
-                          onClick={() => handleDelete(m.id)}
+                        <button 
+                            title="Excluir Manutenção"
+                            className="p-2 hover:bg-red-100 rounded dark:hover:bg-red-800/50" 
+                            onClick={() => handleDelete(m.id)}
                         >
                           <Trash2 className="w-4 h-4 text-red-500" />
                         </button>
@@ -356,6 +370,8 @@ const MaintenancePage = () => {
           </table>
         </div>
       )}
+
+      ---
 
       {/* MODAIS */}
 

@@ -1,11 +1,10 @@
 import React, { useEffect, useState, useMemo, useRef } from "react"
-import { collection, getDocs, Timestamp } from "firebase/firestore"
+import { collection, getDocs } from "firebase/firestore"
 import { db } from "../lib/firebase"
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
 import {
     Calendar,
-    TrendingUp,
     DollarSign,
     Package,
     ArrowUp,
@@ -13,14 +12,28 @@ import {
     Download,
     Store,
     ShoppingCart,
-    Clock
+    Clock,
+    BarChart3
 } from "lucide-react"
 
-// Função pra formatar moeda (inalterada)
+// --- Tipagens (inalteradas) ---
+interface SaleData {
+    id: string;
+    items: { saleQty: number }[];
+    timestamp: any; // Firebase Timestamp
+    total: number;
+    status: string;
+    store: string;
+}
+
+// ⭐️ CONSTANTE DE EXCLUSÃO (VERIFIQUE ESTE VALOR DUAS VEZES!)
+const EXCLUDED_STORE_EMAIL = "minha-loja@exemplo.com"; 
+const EXCLUDED_STORE_NORMALIZED = EXCLUDED_STORE_EMAIL.toLowerCase().trim();
+
+// --- Funções Auxiliares (inalteradas) ---
 const formatCurrency = (value: number) =>
     value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
 
-// Períodos para filtro (inalterado)
 const periods = [
     { id: "day", name: "Hoje" },
     { id: "week", name: "Semana" },
@@ -28,17 +41,68 @@ const periods = [
     { id: "year", name: "Ano" }
 ]
 
-// ⭐️ CORREÇÃO AQUI: Os IDs das lojas foram atualizados para os valores reais do seu campo 'store' no Firebase.
-// Substitua "Loja B Nome Real" pelo nome exato da sua segunda loja no Firebase.
-const stores = [
+// Lista de lojas VISÍVEIS no filtro. 
+const ALL_STORES = [
     { id: "all", name: "Todas as Lojas" },
-    // Use o email como ID, e o nome descritivo para exibição no botão de filtro
     { id: "jardimdagloria@solucell.com", name: "Loja Jardim da Glória" },
     { id: "vilaesportiva@solucell.com", name: "Loja Vila Esportiva" }
-    // Adicione outros emails/lojas aqui
 ]
 
-// Componente Auxiliar para o Cartão de Métrica (inalterado)
+// ... (MetricCard e Funções de Data/Cálculo inalterados) ...
+const getPeriodStart = (period: string): Date => {
+    const now = new Date()
+    switch (period) {
+        case "day":
+            return new Date(now.getFullYear(), now.getMonth(), now.getDate())
+        case "week": {
+            const dayOfWeek = now.getDay() 
+            const diff = now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1)
+            return new Date(now.getFullYear(), now.getMonth(), diff)
+        }
+        case "month":
+            return new Date(now.getFullYear(), now.getMonth(), 1)
+        case "year":
+            return new Date(now.getFullYear(), 0, 1)
+        default:
+            return new Date(0)
+    }
+}
+
+const getPreviousPeriodStart = (period: string, currentStart: Date): Date => {
+    const prev = new Date(currentStart);
+    switch (period) {
+        case "day":
+            prev.setDate(prev.getDate() - 1);
+            break;
+        case "week":
+            prev.setDate(prev.getDate() - 7);
+            break;
+        case "month":
+            prev.setMonth(prev.getMonth() - 1);
+            break;
+        case "year":
+            prev.setFullYear(prev.getFullYear() - 1);
+            break;
+    }
+    return prev;
+}
+
+const calculateMetrics = (salesArray: SaleData[]) => {
+    const totalRevenue = salesArray.reduce((acc, sale) => acc + sale.total, 0)
+    const totalSalesCount = salesArray.length
+    const totalItemsSold = salesArray.reduce((acc, sale) =>
+        acc + sale.items.reduce((itAcc: number, item: any) => itAcc + (item.saleQty || 0), 0)
+        , 0)
+    const avgTicket = totalSalesCount ? totalRevenue / totalSalesCount : 0
+    return { totalRevenue, totalSalesCount, totalItemsSold, avgTicket }
+}
+
+const calculateGrowth = (current: number, previous: number): number => {
+    if (previous === 0) return current > 0 ? 100 : 0; 
+    return ((current - previous) / previous) * 100;
+}
+
+
 interface MetricCardProps {
     icon: React.ReactNode
     title: string
@@ -77,12 +141,11 @@ const MetricCard: React.FC<MetricCardProps> = ({ icon, title, value, growth, ico
     )
 }
 
-// Componente Principal
+// --- Componente Principal ---
 export default function Reports() {
-    const [sales, setSales] = useState<any[]>([])
+    const [sales, setSales] = useState<SaleData[]>([])
     const [loading, setLoading] = useState(true)
-    const [period, setPeriod] = useState("day") // 🔥 padrão = Hoje
-
+    const [period, setPeriod] = useState("month") 
     const [storeFilter, setStoreFilter] = useState("all")
     const reportRef = useRef<HTMLDivElement>(null)
 
@@ -92,16 +155,17 @@ export default function Reports() {
             setLoading(true)
             try {
                 const salesSnapshot = await getDocs(collection(db, "sales"))
-                const salesData = salesSnapshot.docs.map(doc => {
+                const salesData: SaleData[] = salesSnapshot.docs.map(doc => {
                     const data = doc.data()
                     return {
                         id: doc.id,
                         items: data.items || [],
                         timestamp: data.timestamp,
                         total: Number(data.total) || 0,
-                        status: data.status || "active",
-                        store: data.store || "unknown",
-                    }
+                        status: data.status || "active", 
+                        // 💡 TRATAMENTO EXTRA: Remove espaços em branco do campo 'store' (apenas por segurança)
+                        store: (data.store || "unknown").trim(), 
+                    } as SaleData
                 })
                 setSales(salesData)
             } catch (error) {
@@ -113,61 +177,88 @@ export default function Reports() {
         fetchSales()
     }, [])
 
-    // --- Lógica de Filtro e Cálculo de Métricas (Ajustada) ---
-    const getPeriodStart = () => {
-        const now = new Date()
-        switch (period) {
-            case "day":
-                return new Date(now.getFullYear(), now.getMonth(), now.getDate())
-            case "week": {
-                const dayOfWeek = now.getDay()
-                const diff = now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1)
-                return new Date(now.getFullYear(), now.getMonth(), diff)
-            }
-            case "month":
-                return new Date(now.getFullYear(), now.getMonth(), 1)
-            case "year":
-                return new Date(now.getFullYear(), 0, 1)
-            default:
-                return new Date(0)
-        }
+    // ** Função de Exclusão Reutilizável E NORMALIZADA **
+    const isSaleExcluded = (sale: SaleData) => {
+        // 1. Verifica se a venda está ativa/concluída
+        const isCompletedOrActive = (
+            sale.status === "completed" || 
+            sale.status === "active" ||
+            !sale.status 
+        );
+        
+        // ⭐️ 2. VERIFICAÇÃO NORMALIZADA: Converte para minúsculas e remove espaços para comparação robusta
+        const saleStoreNormalized = sale.store.toLowerCase().trim();
+        const isExcludedStore = saleStoreNormalized === EXCLUDED_STORE_NORMALIZED;
+        
+        // Retorna TRUE se a venda deve ser INCLUÍDA (ou seja, está ativa E NÃO é a loja excluída)
+        return isCompletedOrActive && !isExcludedStore;
     }
 
-    const periodStart = getPeriodStart()
 
-    // Função para calcular métricas
-    const calculateMetrics = (salesArray: any[]) => {
-        const totalRevenue = salesArray.reduce((acc, sale) => acc + sale.total, 0)
-        const totalSalesCount = salesArray.length
-        const totalItemsSold = salesArray.reduce((acc, sale) =>
-            acc + sale.items.reduce((itAcc: number, item: any) => itAcc + (item.saleQty || 0), 0)
-            , 0)
-        const avgTicket = totalSalesCount ? totalRevenue / totalSalesCount : 0
-        return { totalRevenue, totalSalesCount, totalItemsSold, avgTicket }
-    }
+    // --- Lógica de Filtro e Cálculo de Métricas (usando isSaleExcluded) ---
+    
+    const periodStart = useMemo(() => getPeriodStart(period), [period]);
+    const previousPeriodStart = useMemo(() => getPreviousPeriodStart(period, periodStart), [period, periodStart]);
 
-    // 7. useMemo (Filtro principal de vendas)
+
+    // Filtro para Vendas ATIVAS/CONCLUÍDAS no Período ATUAL
     const filteredSales = useMemo(() => {
         return sales.filter(sale => {
             const saleDate = sale.timestamp?.toDate()
-            const isWithinPeriod = saleDate && saleDate >= periodStart
-            const isActive = sale.status !== "refunded"
-            // ⭐️ Filtra pelo ID REAL (que é o nome da loja no Firebase)
+            
+            const isWithinCurrentPeriod = saleDate && saleDate >= periodStart
+            
+            // Filtra pela loja selecionada OU todas
             const isMatchingStore = storeFilter === "all" || sale.store === storeFilter
-            return isWithinPeriod && isActive && isMatchingStore
+            
+            // Aplica a regra de inclusão e a regra de loja selecionada
+            return isWithinCurrentPeriod && isSaleExcluded(sale) && isMatchingStore;
         })
     }, [sales, periodStart, storeFilter])
 
-    // 8. useMemo (Métricas por Loja A e B - AGORA USANDO OS IDs REAIS)
+
+    // Filtro para Vendas ATIVAS/CONCLUÍDAS no Período ANTERIOR (para cálculo de Growth)
+    const previousFilteredSales = useMemo(() => {
+        const previousEnd = periodStart; 
+        
+        return sales.filter(sale => {
+            const saleDate = sale.timestamp?.toDate()
+            
+            const isWithinPreviousPeriod = saleDate && saleDate >= previousPeriodStart && saleDate < previousEnd;
+            
+            const isMatchingStore = storeFilter === "all" || sale.store === storeFilter
+            
+            // Aplica a regra de inclusão e a regra de loja selecionada
+            return isWithinPreviousPeriod && isSaleExcluded(sale) && isMatchingStore;
+        })
+    }, [sales, previousPeriodStart, periodStart, storeFilter]);
+    
+    
+    // --- Cálculo das Métricas (ATUAL vs ANTERIOR) ---
+    const currentMetrics = calculateMetrics(filteredSales);
+    const previousMetrics = calculateMetrics(previousFilteredSales);
+
+    const metricsWithGrowth = useMemo(() => ({
+        revenueGrowth: calculateGrowth(currentMetrics.totalRevenue, previousMetrics.totalRevenue),
+        salesCountGrowth: calculateGrowth(currentMetrics.totalSalesCount, previousMetrics.totalSalesCount),
+        itemsSoldGrowth: calculateGrowth(currentMetrics.totalItemsSold, previousMetrics.totalItemsSold),
+        avgTicketGrowth: calculateGrowth(currentMetrics.avgTicket, previousMetrics.avgTicket),
+    }), [currentMetrics, previousMetrics]);
+    
+    // 8. useMemo (Métricas por Loja A e B)
     const { metricsStoreA, metricsStoreB } = useMemo(() => {
-        const filterByPeriod = (s: any) => s.timestamp?.toDate() >= periodStart && s.status !== "refunded"
+        // Esta função garante que as vendas de outras lojas (incluindo a excluída) não sejam contadas
+        const filterByPeriodAndActive = (s: SaleData, targetStoreId: string) => (
+            s.timestamp?.toDate() >= periodStart && 
+            isSaleExcluded(s) &&
+            s.store === targetStoreId
+        );
 
-        // ⭐️ Filtra usando os nomes reais do seu Firebase
-        const STORE_A_ID = "Jardim da Gloria"
-        const STORE_B_ID = "Loja B Nome Real" // Use o nome real da sua Loja B aqui!
+        const STORE_A_ID = "jardimdagloria@solucell.com" 
+        const STORE_B_ID = "vilaesportiva@solucell.com" 
 
-        const salesStoreA = sales.filter(s => s.store === STORE_A_ID && filterByPeriod(s))
-        const salesStoreB = sales.filter(s => s.store === STORE_B_ID && filterByPeriod(s))
+        const salesStoreA = sales.filter(s => filterByPeriodAndActive(s, STORE_A_ID))
+        const salesStoreB = sales.filter(s => filterByPeriodAndActive(s, STORE_B_ID))
 
         return {
             metricsStoreA: calculateMetrics(salesStoreA),
@@ -175,12 +266,8 @@ export default function Reports() {
         }
     }, [sales, periodStart])
 
-    const currentMetrics = calculateMetrics(filteredSales);
 
-    // Crescimento simulado
-    const growth = ""
-
-    // --- Lógica de Exportação PDF (Inalterada) ---
+    // --- Lógica de Exportação PDF (inalterada) ---
     const handleExportPDF = async () => {
         if (!reportRef.current) return
 
@@ -198,7 +285,7 @@ export default function Reports() {
             pdf.text("Relatório de Vendas - Solucell", 14, 15)
             pdf.setFontSize(10)
             const periodName = periods.find(p => p.id === period)?.name || "Período"
-            const storeName = stores.find(s => s.id === storeFilter)?.name || "Todas as Lojas"
+            const storeName = ALL_STORES.find(s => s.id === storeFilter)?.name || "Todas as Lojas"
             pdf.text(`Período: ${periodName} | Loja: ${storeName}`, 14, 23)
 
             const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width
@@ -211,21 +298,20 @@ export default function Reports() {
         }
     }
 
-    // A verificação condicional DEVE vir APÓS TODOS OS HOOKS.
     if (loading) return <p className="text-white p-8">Carregando dados...</p>
 
     // --- Estrutura da Tela (inalterada) ---
     return (
-        <div ref={reportRef} className="p-8 bg-slate-950 min-h-screen space-y-8 font-sans">
-            <header className="flex justify-between items-center border-b border-slate-800 pb-5">
+        <div ref={reportRef} className="p-4 sm:p-8 bg-slate-950 min-h-screen space-y-8 font-sans">
+            <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-800 pb-5">
                 <div>
-                    <h1 className="text-2xl font-semibold text-white mb-1">📊 Painel de Vendas Solucell</h1>
+                    <h1 className="text-2xl font-semibold text-white mb-1 flex items-center gap-2"><BarChart3 className="w-6 h-6 text-blue-400"/> Painel de Vendas Solucell</h1>
                     <p className="text-slate-400 text-sm">Análise de desempenho consolidada por período e loja.</p>
                 </div>
 
                 <button
                     onClick={handleExportPDF}
-                    className="export-button-hide flex items-center gap-2 px-5 py-2 bg-emerald-600 rounded-full hover:bg-emerald-700 text-white font-semibold text-sm shadow-lg shadow-emerald-700/30 transition-all duration-300"
+                    className="export-button-hide flex items-center gap-2 px-5 py-2 mt-4 sm:mt-0 bg-emerald-600 rounded-full hover:bg-emerald-700 text-white font-semibold text-sm shadow-lg shadow-emerald-700/30 transition-all duration-300"
                 >
                     <Download className="w-4 h-4" />
                     Exportar Relatório
@@ -256,7 +342,7 @@ export default function Reports() {
                     <div>
                         <p className="text-slate-400 mb-2 font-semibold text-sm flex items-center gap-2"><Store className="w-4 h-4" /> Selecionar Loja</p>
                         <div className="flex flex-wrap gap-2">
-                            {stores.map(s => (
+                            {ALL_STORES.map(s => (
                                 <button
                                     key={s.id}
                                     onClick={() => setStoreFilter(s.id)}
@@ -276,7 +362,7 @@ export default function Reports() {
                 <h2 className="text-lg font-semibold text-white mb-4">
                     Resultados:{" "}
                     <span className="text-blue-300">
-                        {stores.find(s => s.id === storeFilter)?.name} ({periods.find(p => p.id === period)?.name})
+                        {ALL_STORES.find(s => s.id === storeFilter)?.name} ({periods.find(p => p.id === period)?.name})
                     </span>
                 </h2>
                 <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
@@ -286,30 +372,61 @@ export default function Reports() {
                         icon={<DollarSign className="w- h-5" />}
                         title="Receita Total"
                         value={formatCurrency(currentMetrics.totalRevenue)}
-                        growth={growth}
+                        growth={metricsWithGrowth.revenueGrowth}
                         iconColor="bg-emerald-600 text-white"
                         isMain
+                    />
+
+                    {/* 2. Total de Vendas (Contagem de Transações) */}
+                    <MetricCard
+                        icon={<ShoppingCart className="w-5 h-5" />}
+                        title="Total de Transações"
+                        value={currentMetrics.totalSalesCount}
+                        growth={metricsWithGrowth.salesCountGrowth}
+                        iconColor="bg-blue-600 text-white"
                     />
 
                     {/* 3. Itens Vendidos */}
                     <MetricCard
                         icon={<Package className="w-5 h-5" />}
-                        title="Vendas"
+                        title="Itens Vendidos"
                         value={currentMetrics.totalItemsSold}
-                        growth={growth}
+                        growth={metricsWithGrowth.itemsSoldGrowth}
                         iconColor="bg-amber-600 text-white"
                     />
 
                     {/* 4. Ticket Médio */}
                     <MetricCard
-                        icon={<ShoppingCart className="w-5 h-5" />}
+                        icon={<DollarSign className="w-5 h-5" />}
                         title="Ticket Médio"
                         value={formatCurrency(currentMetrics.avgTicket)}
-                        growth={growth}
+                        growth={metricsWithGrowth.avgTicketGrowth}
                         iconColor="bg-red-600 text-white"
                     />
                 </div>
             </section>
+
+            {/* --- Comparativo de Lojas (Se o filtro for "Todas") --- */}
+            {storeFilter === "all" && (
+                <section>
+                    <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                        <Store className="w-5 h-5 text-purple-400"/>
+                        Comparativo de Lojas (Receita)
+                    </h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="bg-slate-900 p-5 rounded-xl border border-slate-800">
+                            <p className="text-slate-300 font-bold mb-2">Loja Jardim da Glória</p>
+                            <p className="text-3xl font-extrabold text-emerald-400">{formatCurrency(metricsStoreA.totalRevenue)}</p>
+                            <p className="text-sm text-slate-400 mt-1">Total de vendas: {metricsStoreA.totalSalesCount}</p>
+                        </div>
+                        <div className="bg-slate-900 p-5 rounded-xl border border-slate-800">
+                            <p className="text-slate-300 font-bold mb-2">Loja Vila Esportiva</p>
+                            <p className="text-3xl font-extrabold text-emerald-400">{formatCurrency(metricsStoreB.totalRevenue)}</p>
+                            <p className="text-sm text-slate-400 mt-1">Total de vendas: {metricsStoreB.totalSalesCount}</p>
+                        </div>
+                    </div>
+                </section>
+            )}
 
 
             {/* --- Tabela de Detalhes (Vendas Recentes) --- */}
@@ -317,7 +434,7 @@ export default function Reports() {
                 <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2"><Clock className="w-5 h-5 text-slate-400" /> Detalhe das Últimas Vendas ({filteredSales.length} Resultados)</h2>
                 <div className="overflow-x-auto">
                     {filteredSales.length === 0 ? (
-                        <p className="text-slate-400 italic py-3 text-sm">Nenhuma transação encontrada no período e filtro selecionados.</p>
+                        <p className="text-slate-400 italic py-3 text-sm">Nenhuma transação ativa/concluída encontrada no período e filtro selecionados.</p>
                     ) : (
                         <table className="min-w-full divide-y divide-slate-800">
                             <thead>
@@ -332,18 +449,21 @@ export default function Reports() {
                                 {filteredSales
                                     .slice()
                                     .sort((a, b) => b.timestamp.toDate().getTime() - a.timestamp.toDate().getTime())
-                                    .slice(0, 15)
+                                    .slice(0, 15) // Limita a 15 resultados recentes
                                     .map(sale => (
                                         <tr key={sale.id} className="text-white hover:bg-slate-800/70 transition-colors">
-                                            <td className="py-2 px-3 text-xs font-medium">
-                                                {sale.items.map((i: any) => `${i.saleQty}x ${i.name}`).join(", ")}
+                                            <td className="py-2 px-3 text-xs font-medium max-w-xs truncate">
+                                                {/* Exibe o item principal ou a lista de itens */}
+                                                {sale.items.length > 0
+                                                    ? sale.items.map((i: any) => `${i.saleQty}x ${i.name}`).join(", ")
+                                                    : `Transação #${sale.id.substring(0, 8)}`}
                                             </td>
                                             <td className="py-2 px-3 text-emerald-400 font-bold text-sm">
                                                 {formatCurrency(sale.total)}
                                             </td>
-                                            {/* ⭐️ CORREÇÃO AQUI: Mapeia o ID da loja para o Nome da Loja */}
+                                            {/* Mapeia o ID da loja (email) para o Nome de exibição */}
                                             <td className="py-2 px-3 text-slate-300 text-xs">
-                                                {stores.find(s => s.id === sale.store)?.name || sale.store || "Desconhecida"}
+                                                {ALL_STORES.find(s => s.id === sale.store)?.name || sale.store || "Desconhecida"}
                                             </td>
                                             <td className="py-2 px-3 text-slate-400 text-xs">
                                                 {sale.timestamp.toDate().toLocaleString("pt-BR", {

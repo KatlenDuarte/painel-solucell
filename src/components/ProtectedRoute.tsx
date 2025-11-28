@@ -1,6 +1,9 @@
+// src/components/ProtectedRoute.tsx
+
 import { useState, useEffect } from "react"
 
-export default function ProtectedRoute({ isUnlocked, onUnlock, children }) {
+// Adicionar a prop requiredPin à interface/destructuring
+export default function ProtectedRoute({ isUnlocked, onUnlock, children, requiredPin }) {
   const [pin, setPin] = useState("")
   const [error, setError] = useState("")
   const [attempts, setAttempts] = useState(0)
@@ -10,6 +13,7 @@ export default function ProtectedRoute({ isUnlocked, onUnlock, children }) {
   const BLOCK_TIME = 30
 
   useEffect(() => {
+    // ... (lógica de bloqueio por tempo) ...
     if (blocked) {
       setTimeLeft(BLOCK_TIME)
       const interval = setInterval(() => {
@@ -31,8 +35,11 @@ export default function ProtectedRoute({ isUnlocked, onUnlock, children }) {
     if (blocked) return
 
     if (value.length === 4) {
-      if (value === "9838") {
+      // USAR A PROP requiredPin AQUI
+      if (value === requiredPin) {
         onUnlock(true)
+        setError("") // Limpa o erro em caso de sucesso
+        setAttempts(0) // Reseta as tentativas
       } else {
         setError("PIN incorreto")
         setPin("")
