@@ -1,4 +1,11 @@
-import { collection, doc, setDoc, serverTimestamp, updateDoc, getDoc } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  writeBatch,
+  increment,
+  Timestamp,
+} from "firebase/firestore";
+
 import { db } from "../lib/firebase";
 
 interface ProductSale {
@@ -15,8 +22,8 @@ interface SaleData {
   total: number;
   paymentMethod: string;
   isFiado: boolean;
-  expectedPaymentDate?: string;      // ADICIONAR
-  distributedPayments?: Array<{     // ADICIONAR
+  expectedPaymentDate?: string;
+  distributedPayments?: Array<{
     method: string;
     value: number;
   }>;
@@ -28,30 +35,90 @@ interface SaleData {
 export const salesCollection = collection(db, "sales");
 
 export const registerSaleAndAdjustStock = async (saleData: SaleData) => {
-  // 1) Salva a venda
+  const batch = writeBatch(db);
   const newSaleRef = doc(salesCollection);
+
+  const now = Timestamp.now();
+
+  const expectedDate =
+    saleData.isFiado && saleData.expectedPaymentDate
+      ? Timestamp.fromDate(
+          new Date(`${saleData.expectedPaymentDate}T12:00:00`)
+        )
+      : null;
+
+  const subtotal = Number(saleData.subtotal || 0);
+  const discount = Number(saleData.discount || 0);
+  const total = Number(saleData.total || 0);
+
   const saleToSave = {
-    ...saleData,
-    timestamp: serverTimestamp(),
+    store: saleData.store,
+
+    subtotal,
+    discount,
+    total,
+
+    paymentMethod: saleData.isFiado ? "Fiado" : saleData.paymentMethod,
+
+    isFiado: saleData.isFiado,
+
+    status: saleData.isFiado ? "pending" : "completed",
+
+    expectedPaymentDate: expectedDate,
+
+    clientName: saleData.clientName || "",
+    clientPhone: saleData.clientPhone || "",
+
+    fiado: saleData.isFiado
+      ? {
+          nome: saleData.clientName || "",
+          whatsapp: saleData.clientPhone || "",
+          valor: total,
+          data: expectedDate,
+        }
+      : null,
+
+    distributedPayments: saleData.distributedPayments || [],
+
+    items: saleData.items.map((item) => {
+      const price = Number(item.price || 0);
+      const saleQty = Number(item.saleQty || 1);
+
+      return {
+        id: item.id,
+        name: item.name,
+        price,
+        saleQty,
+        qty: saleQty,
+        total: price * saleQty,
+      };
+    }),
+
+    timestamp: now,
+    createdAt: now,
   };
 
-  await setDoc(newSaleRef, saleToSave);
+  batch.set(newSaleRef, saleToSave);
 
-  // 2) Para cada item vendido → reduzir estoque
-  
   for (const item of saleData.items) {
+    const isNonCatalog = String(item.id).startsWith("non-catalog-");
+
+    if (isNonCatalog) continue;
+    if (!item.id || Number(item.saleQty || 0) <= 0) continue;
+
     const productRef = doc(db, "products", item.id);
-    const productSnap = await getDoc(productRef);
 
-    if (productSnap.exists()) {
-      const currentStock = productSnap.data().stock || 0;
-      const newStock = Math.max(0, currentStock - item.saleQty);
-
-      await updateDoc(productRef, { stock: newStock });
-    }
+    batch.update(productRef, {
+      stock: increment(-Number(item.saleQty || 0)),
+    });
   }
 
-  return { id: newSaleRef.id, ...saleToSave };
+  await batch.commit();
+
+  return {
+    id: newSaleRef.id,
+    ...saleToSave,
+  };
 };
 
 export type { ProductSale, SaleData };

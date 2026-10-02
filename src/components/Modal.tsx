@@ -1,68 +1,54 @@
-import React, { useEffect } from "react"
-import {X} from 'lucide-react'
+import React from "react";
+import { X } from "lucide-react";
 
 interface ModalProps {
-  isOpen: boolean
-  onClose: () => void
-  title: string
-  children: React.ReactNode
-  size?: "sm" | "md" | "lg" | "xl"
+  isOpen: boolean;
+  onClose: () => void;
+  title: string;
+  size?: "sm" | "md" | "lg" | "xl" | "2xl";
+  children: React.ReactNode;
 }
 
-export default function Modal({ isOpen, onClose, title, children, size = "md" }: ModalProps) {
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose()
-    }
-
-    if (isOpen) {
-      document.addEventListener("keydown", handleEscape)
-      document.body.style.overflow = "hidden"
-    }
-
-    return () => {
-      document.removeEventListener("keydown", handleEscape)
-      document.body.style.overflow = "unset"
-    }
-  }, [isOpen, onClose])
-
-  if (!isOpen) return null
+export default function Modal({
+  isOpen,
+  onClose,
+  title,
+  size = "md",
+  children,
+}: ModalProps) {
+  if (!isOpen) return null;
 
   const sizeClasses = {
-    sm: "max-w-md",
-    md: "max-w-2xl",
-    lg: "max-w-4xl",
-    xl: "max-w-6xl"
-  }
+    sm: "max-w-sm",
+    md: "max-w-md",
+    lg: "max-w-2xl",
+    xl: "max-w-4xl",
+    "2xl": "max-w-5xl",
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
-      {/* Backdrop */}
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/70 backdrop-blur-sm">
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
-      />
-
-      {/* Modal */}
-      <div
-        className={`relative w-full ${sizeClasses[size]} bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 animate-scale-in max-h-[90vh] overflow-hidden flex flex-col`}
+        className={`w-full ${sizeClasses[size]} max-h-[94vh] overflow-hidden bg-[#020617] border border-slate-800 rounded-2xl shadow-2xl`}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-800">
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">{title}</h2>
+        <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-slate-800 bg-slate-950/80">
+          <h2 className="text-base sm:text-lg font-black text-white tracking-tight">
+            {title}
+          </h2>
+
           <button
+            type="button"
             onClick={onClose}
-            className="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
+            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all"
           >
-            <X className="w-5 h-5" />
+            <X size={18} />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="max-h-[calc(94vh-56px)] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {children}
         </div>
       </div>
     </div>
-  )
+  );
 }

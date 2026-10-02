@@ -1,6 +1,18 @@
 import React, { useState, useEffect } from "react";
 import Modal from "./Modal";
-import { Package, Plus, Minus, AlertTriangle } from "lucide-react";
+import {
+  Package,
+  Plus,
+  Minus,
+  AlertTriangle,
+  Save,
+  X,
+  DollarSign,
+  Boxes,
+  Pencil,
+  Truck,
+  ShieldAlert,
+} from "lucide-react";
 
 interface Product {
   id: string;
@@ -10,6 +22,7 @@ interface Product {
   stock: number;
   minStock: number;
   price: number;
+  provider?: string | null;
 }
 
 interface EditStockModalProps {
@@ -21,7 +34,9 @@ interface EditStockModalProps {
     newStock: number,
     operation: "add" | "remove" | "set",
     newName: string,
-    newPrice: number
+    newPrice: number,
+    newMinStock: number,
+    newProvider: string | null
   ) => void;
 }
 
@@ -37,15 +52,25 @@ export default function EditStockModal({
 
   const [newName, setNewName] = useState<string>("");
   const [newPrice, setNewPrice] = useState<string>("0");
+  const [newMinStock, setNewMinStock] = useState<string>("0");
+  const [newProvider, setNewProvider] = useState<string>("");
 
   useEffect(() => {
     if (!product) return;
 
-    // Inicializa o nome e preço com os valores atuais do produto
-    setNewName(product.name);
-    setNewPrice(String(product.price));
+    setNewName(product.name || "");
+    setNewPrice(String(product.price || 0));
+    setNewMinStock(String(product.minStock || 0));
+    setNewProvider(product.provider || "");
+    setQuantity("0");
+    setOperation("add");
+    setNewStock(product.stock || 0);
+  }, [product]);
 
-    const q = Number(quantity);
+  useEffect(() => {
+    if (!product) return;
+
+    const q = Number(quantity || 0);
     let result = product.stock;
 
     if (operation === "add") result = product.stock + q;
@@ -59,201 +84,227 @@ export default function EditStockModal({
 
   if (!product) return null;
 
-  const isLowStock = newStock > 0 && newStock < product.minStock;
+  const minStockNumber = Number(newMinStock || 0);
+  const isLowStock = newStock > 0 && newStock < minStockNumber;
   const isCritical = newStock === 0;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    const q = Number(quantity);
-    const updatedPrice = Number(newPrice);
+    const q = Number(quantity || 0);
+    const updatedPrice = Number(newPrice || 0);
+    const updatedMinStock = Number(newMinStock || 0);
+    const providerValue = newProvider.trim() || null;
+
+    if (!newName.trim()) {
+      alert("Informe o nome do produto.");
+      return;
+    }
+
+    if (updatedPrice < 0) {
+      alert("O preço não pode ser negativo.");
+      return;
+    }
+
+    if (updatedMinStock < 0) {
+      alert("A quantidade mínima não pode ser negativa.");
+      return;
+    }
 
     if (operation === "remove" && q > product.stock) {
       alert("Você não pode remover mais do que o estoque atual!");
       return;
     }
 
-    onSubmit(product.id, newStock, operation, newName, updatedPrice);
+    onSubmit(
+      product.id,
+      newStock,
+      operation,
+      newName.trim(),
+      updatedPrice,
+      updatedMinStock,
+      providerValue
+    );
 
     onClose();
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Editar Produto & Estoque" size="md">
-      <form onSubmit={handleSubmit} className="p-6 space-y-6">
-        
-        {/* INFO DO PRODUTO (CORRIGIDO) */}
-        <div className="bg-slate-800 border border-slate-700 rounded-xl p-4">
-          <div className="flex items-start gap-4">
-            <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-lg flex items-center justify-center flex-shrink-0">
-              <Package className="w-6 h-6 text-white" />
-            </div>
-            <div className="flex-1">
-              {/* ✅ CORREÇÃO AQUI: Usa 'newName' */}
-              <h3 className="text-white font-semibold text-lg">{newName}</h3>
-              <p className="text-slate-400 text-sm">
-                {product.brand} - {product.model}
+    <Modal isOpen={isOpen} onClose={onClose} title="Editar" size="xl">
+      <form
+        onSubmit={handleSubmit}
+        className="bg-[#020617] text-slate-200 p-4 sm:p-5 space-y-4"
+      >
+        <div className="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-4">
+          <div className="flex items-start gap-3">
+
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] uppercase font-black tracking-wider text-slate-500">
+                Produto selecionado
               </p>
-              <div className="mt-2 flex items-center gap-4">
-                <div>
-                  <p className="text-slate-500 text-xs">Estoque Atual</p>
-                  <p className="text-white font-bold text-xl">{product.stock}</p>
-                </div>
-                <div>
-                  <p className="text-slate-500 text-xs">Preço Atual</p>
-                  {/* ✅ CORREÇÃO AQUI: Usa 'newPrice' */}
-                  <p className="text-white font-bold text-xl">R$ {Number(newPrice).toFixed(2)}</p>
-                </div>
+
+              <h3 className="text-white font-black text-sm sm:text-base leading-tight truncate mt-0.5">
+                {newName || product.name}
+              </h3>
+
+              <p className="text-slate-500 text-xs mt-1 truncate">
+                {product.brand} • {product.model}
+              </p>
+
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+                <MiniStat
+                  icon={<Boxes size={15} />}
+                  label="Estoque atual"
+                  value={`${product.stock} un`}
+                  color="blue"
+                />
+
+                <MiniStat
+                  icon={<ShieldAlert size={15} />}
+                  label="Mínimo atual"
+                  value={`${product.minStock} un`}
+                  color="amber"
+                />
+
+                <MiniStat
+                  icon={<DollarSign size={15} />}
+                  label="Preço atual"
+                  value={`R$ ${Number(product.price || 0).toFixed(2)}`}
+                  color="emerald"
+                />
+
+                <MiniStat
+                  icon={<Truck size={15} />}
+                  label="Fornecedor"
+                  value={product.provider || "Não informado"}
+                  color="slate"
+                />
               </div>
             </div>
           </div>
         </div>
 
-        {/* CAMPOS DE EDIÇÃO DE DETALHES */}
-        <div className="space-y-4 pt-2 pb-4 border-b border-slate-800">
-          <h4 className="text-lg font-semibold text-slate-200">Detalhes do Produto</h4>
-          
-          {/* Campo para o Nome do Produto */}
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
-              Nome do Produto
-            </label>
-            <input
-              type="text"
-              required
+        <section className="bg-slate-900/50 border border-slate-800/80 rounded-2xl p-4 space-y-4">
+          <SectionTitle
+            icon={<Pencil size={15} />}
+            title="Detalhes do Produto"
+            description="Edite nome, preço, estoque mínimo e fornecedor."
+          />
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <InputField
+              label="Nome do Produto"
               value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-all"
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setNewName(e.target.value)
+              }
+              required
+            />
+
+            <InputField
+              label="Fornecedor"
+              value={newProvider}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setNewProvider(e.target.value)
+              }
+              placeholder="Ex: Distribuidora BH, Shopee..."
             />
           </div>
 
-          {/* Campo para o Preço/Valor */}
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
-              Preço Unitário (R$)
-            </label>
-            <input
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <InputField
+              label="Preço Unitário"
               type="number"
-              required
               min="0"
               step="0.01"
               value={newPrice}
-              onChange={(e) => setNewPrice(e.target.value)}
-              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-all"
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setNewPrice(e.target.value)
+              }
+              required
+            />
+
+            <InputField
+              label="Estoque Mínimo"
+              type="number"
+              min="0"
+              value={newMinStock}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setNewMinStock(e.target.value)
+              }
+              required
             />
           </div>
-        </div>
-        {/* FIM DOS NOVOS CAMPOS */}
+        </section>
 
-        {/* TIPO DE OPERAÇÃO */}
-        <div>
-          <label className="block text-sm font-medium text-slate-300 mb-3">
-            Tipo de Operação de Estoque
-          </label>
+        <section className="bg-slate-900/50 border border-slate-800/80 rounded-2xl p-4 space-y-4">
+          <SectionTitle
+            title="Movimentação de Estoque"
+            description="Escolha se deseja adicionar, remover ou definir o estoque total."
+          />
 
-          <div className="grid grid-cols-3 gap-3">
-            <button
-              type="button"
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+            <OperationButton
+              active={operation === "add"}
+              color="emerald"
+              icon={<Plus size={18} />}
+              label="Adicionar"
               onClick={() => setOperation("add")}
-              className={`p-4 rounded-xl border-2 transition-all ${
-                operation === "add"
-                  ? "border-emerald-500 bg-emerald-500/10"
-                  : "border-slate-700 bg-slate-800 hover:border-slate-600"
-              }`}
-            >
-              <Plus
-                className={`w-6 h-6 mx-auto mb-2 ${
-                  operation === "add" ? "text-emerald-400" : "text-slate-400"
-                }`}
-              />
-              <p
-                className={`text-sm font-medium ${
-                  operation === "add" ? "text-emerald-400" : "text-slate-400"
-                }`}
-              >
-                Adicionar
-              </p>
-            </button>
+            />
 
-            <button
-              type="button"
+            <OperationButton
+              active={operation === "remove"}
+              color="red"
+              icon={<Minus size={18} />}
+              label="Remover"
               onClick={() => setOperation("remove")}
-              className={`p-4 rounded-xl border-2 transition-all ${
-                operation === "remove"
-                  ? "border-red-500 bg-red-500/10"
-                  : "border-slate-700 bg-slate-800 hover:border-slate-600"
-              }`}
-            >
-              <Minus
-                className={`w-6 h-6 mx-auto mb-2 ${
-                  operation === "remove" ? "text-red-400" : "text-slate-400"
-                }`}
-              />
-              <p
-                className={`text-sm font-medium ${
-                  operation === "remove" ? "text-red-400" : "text-slate-400"
-                }`}
-              >
-                Remover
-              </p>
-            </button>
+            />
 
-            <button
-              type="button"
+            <OperationButton
+              active={operation === "set"}
+              color="blue"
+              icon={<Package size={18} />}
+              label="Definir"
               onClick={() => setOperation("set")}
-              className={`p-4 rounded-xl border-2 transition-all ${
-                operation === "set"
-                  ? "border-blue-500 bg-blue-500/10"
-                  : "border-slate-700 bg-slate-800 hover:border-slate-600"
-              }`}
-            >
-              <Package
-                className={`w-6 h-6 mx-auto mb-2 ${
-                  operation === "set" ? "text-blue-400" : "text-slate-400"
-                }`}
-              />
-              <p
-                className={`text-sm font-medium ${
-                  operation === "set" ? "text-blue-400" : "text-slate-400"
-                }`}
-              >
-                Definir
-              </p>
-            </button>
+            />
           </div>
-        </div>
 
-        {/* QUANTIDADE DE ESTOQUE */}
-        <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2">
-            {operation === "set" ? "Nova Quantidade Total" : "Quantidade de Movimentação"}
-          </label>
-          <input
+          <InputField
+            label={
+              operation === "set"
+                ? "Nova quantidade total"
+                : "Quantidade de movimentação"
+            }
             type="number"
-            required
             min="0"
             value={quantity}
-            onChange={(e) => setQuantity(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setQuantity(e.target.value)
+            }
+            required
+            center
+            large
             placeholder="0"
-            className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white text-center text-2xl font-bold placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-all"
           />
-        </div>
+        </section>
 
-        {/* PREVIEW */}
-        {quantity && (
-          <div
-            className={`p-4 rounded-xl border-2 ${
-              isCritical
-                ? "bg-red-500/10 border-red-500/30"
-                : isLowStock
-                ? "bg-amber-500/10 border-amber-500/30"
-                : "bg-emerald-500/10 border-emerald-500/30"
-            }`}
-          >
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-slate-300 font-medium">Novo Estoque:</span>
-              <span
-                className={`font-bold text-3xl ${
+        <div
+          className={`rounded-2xl border p-4 ${
+            isCritical
+              ? "bg-red-500/10 border-red-500/30"
+              : isLowStock
+              ? "bg-amber-500/10 border-amber-500/30"
+              : "bg-emerald-500/10 border-emerald-500/30"
+          }`}
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+                Novo estoque
+              </p>
+
+              <p
+                className={`text-3xl sm:text-4xl font-black ${
                   isCritical
                     ? "text-red-400"
                     : isLowStock
@@ -262,47 +313,194 @@ export default function EditStockModal({
                 }`}
               >
                 {newStock}
-              </span>
+              </p>
             </div>
 
-            {(isLowStock || isCritical) && (
-              <div className="flex items-start gap-2 mt-3 pt-3 border-t border-slate-700">
-                <AlertTriangle
-                  className={`w-5 h-5 flex-shrink-0 ${
-                    isCritical ? "text-red-400" : "text-amber-400"
-                  }`}
-                />
-                <p
-                  className={`text-sm ${
-                    isCritical ? "text-red-300" : "text-amber-300"
-                  }`}
-                >
-                  {isCritical
-                    ? "⚠️ Estoque zerado! Produto indisponível para venda."
-                    : `⚠️ Estoque abaixo do mínimo recomendado (${product.minStock} unidades)`}
-                </p>
-              </div>
-            )}
+            <div className="text-right">
+              <p className="text-[11px] text-slate-500">Novo mínimo</p>
+              <p className="text-white font-black">{minStockNumber} un</p>
+            </div>
           </div>
-        )}
 
-        {/* BOTÕES */}
-        <div className="flex items-center gap-4 pt-4 border-t border-slate-800">
+          {(isLowStock || isCritical) && (
+            <div className="flex items-start gap-2 mt-4 pt-4 border-t border-slate-800/80">
+              <AlertTriangle
+                className={`w-5 h-5 shrink-0 ${
+                  isCritical ? "text-red-400" : "text-amber-400"
+                }`}
+              />
+
+              <p
+                className={`text-xs sm:text-sm ${
+                  isCritical ? "text-red-300" : "text-amber-300"
+                }`}
+              >
+                {isCritical
+                  ? "Estoque zerado. Produto indisponível para venda."
+                  : `Estoque abaixo do mínimo recomendado de ${minStockNumber} unidades.`}
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 px-6 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition-all font-medium"
+            className="flex items-center justify-center gap-2 px-5 py-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 rounded-xl transition-all font-black text-xs uppercase"
           >
+            <X size={16} />
             Cancelar
           </button>
+
           <button
             type="submit"
-            className="flex-1 px-6 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white rounded-lg transition-all font-medium shadow-lg shadow-emerald-500/20"
+            className="flex items-center justify-center gap-2 px-5 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl transition-all font-black text-xs uppercase shadow-lg shadow-emerald-500/10"
           >
-            Confirmar Alteração
+            <Save size={16} />
+            Salvar Alteração
           </button>
         </div>
       </form>
     </Modal>
+  );
+}
+
+function SectionTitle({
+  icon,
+  title,
+  description,
+}: {
+  icon?: React.ReactNode;
+  title: string;
+  description?: string;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      {icon && (
+        <div className="p-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-400">
+          {icon}
+        </div>
+      )}
+
+      <div>
+        <h4 className="text-sm font-black text-white">{title}</h4>
+        {description && (
+          <p className="text-[11px] text-slate-500 mt-0.5">{description}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function InputField({
+  label,
+  value,
+  onChange,
+  type = "text",
+  required = false,
+  min,
+  step,
+  placeholder,
+  center = false,
+  large = false,
+}: any) {
+  return (
+    <div>
+      <label className="block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-2">
+        {label} {required && "*"}
+      </label>
+
+      <input
+        type={type}
+        required={required}
+        min={min}
+        step={step}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        className={`w-full bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-3 text-white placeholder-slate-600 outline-none focus:border-emerald-500 transition-colors ${
+          center ? "text-center" : ""
+        } ${large ? "text-2xl sm:text-3xl font-black" : "text-sm"}`}
+      />
+    </div>
+  );
+}
+
+function MiniStat({
+  icon,
+  label,
+  value,
+  color,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  color: "blue" | "emerald" | "amber" | "slate";
+}) {
+  const colorClass =
+    color === "blue"
+      ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+      : color === "emerald"
+      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+      : color === "amber"
+      ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+      : "bg-slate-500/10 text-slate-400 border-slate-500/20";
+
+  return (
+    <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-3 min-w-0">
+      <div className="flex items-center gap-1.5 text-slate-500 mb-1">
+        <span className={`p-1 rounded-lg border ${colorClass}`}>
+          {icon}
+        </span>
+
+        <span className="text-[9px] uppercase font-black tracking-wider truncate">
+          {label}
+        </span>
+      </div>
+
+      <p className="text-white font-black text-sm truncate">{value}</p>
+    </div>
+  );
+}
+
+function OperationButton({
+  active,
+  color,
+  icon,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  color: "emerald" | "red" | "blue";
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  const activeClass =
+    color === "emerald"
+      ? "border-emerald-500 bg-emerald-500/10 text-emerald-400"
+      : color === "red"
+      ? "border-red-500 bg-red-500/10 text-red-400"
+      : "border-blue-500 bg-blue-500/10 text-blue-400";
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`p-3 sm:p-4 rounded-2xl border transition-all ${
+        active
+          ? activeClass
+          : "border-slate-800 bg-slate-950/70 text-slate-500 hover:bg-slate-800/60"
+      }`}
+    >
+      <div className="flex flex-col items-center justify-center gap-1.5">
+        {icon}
+
+        <span className="text-[10px] sm:text-xs font-black uppercase">
+          {label}
+        </span>
+      </div>
+    </button>
   );
 }

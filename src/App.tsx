@@ -11,7 +11,9 @@ import {
   Menu,
   X,
   Sun,
+  Moon,
   Wrench,
+  Zap,
 } from "lucide-react";
 
 import Dashboard from "./pages/Dashboard";
@@ -20,12 +22,14 @@ import Sales from "./pages/Sales";
 import Reports from "./pages/Reports";
 import ProductsContent from "./pages/Products";
 import LoginPage from "./pages/LoginPage";
+import Maintenance from "./pages/Maintenance";
+import SettingsPage from "./pages/SettingsPage";
+
 import logo from "./logo-solucell.png";
 
-import { auth } from "./lib/firebase";
+import { auth, db } from "./lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import Maintenance from "./pages/Maintenance";
-import SettingsPage from "./pages/SettingsPage"; 
+import { doc, getDoc, setDoc } from "firebase/firestore";
 
 interface UserInfo {
   email: string;
@@ -35,65 +39,75 @@ interface UserInfo {
 const VALID_STORES = [
   "vilaesportiva@solucell.com",
   "jardimdagloria@solucell.com",
+  "teste@solucell.com", // Adicionado email de teste
 ];
 
-// Função auxiliar para inicializar o PIN (com persistência)
-const getInitialPin = () => {
-  // Tenta ler do localStorage, se não existir, usa o PIN padrão
-  return localStorage.getItem("app_security_pin") || "9838";
-};
+const DEFAULT_PIN = "9838";
 
 function App() {
   const [currentPage, setCurrentPage] = useState("dashboard");
-  // Inicializa como 'true' (aberto), mas ajustado no useEffect
-  const [sidebarOpen, setSidebarOpen] = useState(true); 
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(true);
 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [pinLoading, setPinLoading] = useState(true);
+
   const [currentUser, setCurrentUser] = useState<UserInfo>({
     email: "",
     role: "",
   });
 
-  // Inicializa o PIN buscando no localStorage
-  const [productPin, setProductPin] = useState(getInitialPin); 
-  
+  const [productPin, setProductPin] = useState(DEFAULT_PIN);
   const [isProductsUnlocked, setProductsUnlocked] = useState(false);
   const [isReportsUnlocked, setReportsUnlocked] = useState(false);
 
-  // Efeito para definir o estado inicial correto da sidebar e tema
   useEffect(() => {
-    document.documentElement.classList.add("dark");
-    
-    // Define a sidebar como aberta por padrão se for desktop (>= 768px)
-    if (window.innerWidth >= 768) { 
-        setSidebarOpen(true);
-    } else {
-        setSidebarOpen(false);
-    }
-    
-    // Listener para ajustar o estado da sidebar ao redimensionar
-    const handleResize = () => {
-        if (window.innerWidth >= 768) {
-            setSidebarOpen(true); // Mantém aberta no desktop
+    const loadGlobalPin = async () => {
+      try {
+        const ref = doc(db, "settings", "security");
+        const snap = await getDoc(ref);
+
+        if (snap.exists()) {
+          const data = snap.data();
+          setProductPin(data.pin || DEFAULT_PIN);
         } else {
-            // Não força o fechamento, apenas garante que o estado mobile é considerado
-            // se mudar de desktop para mobile
+          await setDoc(ref, {
+            pin: DEFAULT_PIN,
+            updatedAt: new Date(),
+          });
+          setProductPin(DEFAULT_PIN);
         }
+      } catch (error) {
+        console.error("Erro ao carregar PIN global:", error);
+        setProductPin(DEFAULT_PIN);
+      } finally {
+        setPinLoading(false);
+      }
     };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-    
+
+    loadGlobalPin();
   }, []);
 
-  // Controla navegação e fecha sidebar se for mobile
-  const handleNavigation = (pageId: string) => {
-    setCurrentPage(pageId);
-    if (window.innerWidth < 768) { 
-      setSidebarOpen(false);
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
     }
-  };
+  }, [isDarkMode]);
 
-  // Mantém usuário logado via Firebase
+  useEffect(() => {
+    const handleResize = () => {
+      setSidebarOpen(window.innerWidth >= 768);
+    };
+
+    handleResize();
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user && VALID_STORES.includes(user.email || "")) {
@@ -102,19 +116,30 @@ function App() {
           role: "Administrador",
         });
         setIsLoggedIn(true);
-      } else {
+      } else if (!isLoggedIn) {
         setIsLoggedIn(false);
       }
+
+      setAuthLoading(false);
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [isLoggedIn]);
+
+  const handleNavigation = (pageId: string) => {
+    setCurrentPage(pageId);
+
+    if (window.innerWidth < 768) {
+      setSidebarOpen(false);
+    }
+  };
 
   const toggleTheme = () => {
-    // Lógica para toggle theme (atualmente não faz nada)
+    setIsDarkMode((prev) => !prev);
   };
 
   const handleLogout = () => {
+    auth.signOut();
     setCurrentUser({ email: "", role: "" });
     setIsLoggedIn(false);
     setProductsUnlocked(false);
@@ -127,7 +152,13 @@ function App() {
       email: storeEmail,
       role: "Administrador",
     });
+
     setIsLoggedIn(true);
+  };
+
+  const handleQuickTestLogin = () => {
+    // Entra direto como conta neutra de teste sem carregar dados reais
+    handleLoginSuccess("teste@solucell.com");
   };
 
   const navigation = [
@@ -140,9 +171,6 @@ function App() {
   ];
 
   const renderPage = () => {
-    if (!isLoggedIn)
-      return <LoginPage auth={auth} onLoginSuccess={handleLoginSuccess} />;
-
     switch (currentPage) {
       case "dashboard":
         return <Dashboard storeEmail={currentUser.email} />;
@@ -189,124 +217,164 @@ function App() {
     }
   };
 
-  return (
-    <div className="bg-slate-100 dark:bg-slate-950 flex w-full min-h-screen">
-      {isLoggedIn && (
-        <>
-          {/* 📱 Overlay Mobile */}
-          {sidebarOpen && window.innerWidth < 768 && (
-              <div 
-                  className="fixed inset-0 bg-black/50 z-40 md:hidden" 
-                  onClick={() => setSidebarOpen(false)}
-              ></div>
-          )}
+  if (authLoading || pinLoading) {
+    return (
+      <div className="min-h-screen w-full bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center gap-4">
+        <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+          Carregando painel...
+        </p>
+      </div>
+    );
+  }
 
-          <aside
-            className={`
-              bg-white dark:bg-slate-900 border-r border-slate-300 dark:border-slate-800 
-              transition-transform duration-300 overflow-y-auto flex flex-col h-full z-50
-              
-              // 🖥️ Desktop (md e acima): Fica estática e visível.
-              md:w-64 md:fixed md:translate-x-0
-              
-              // 📱 Mobile (abaixo de md): Fica fixa, mas escondida se sidebarOpen for falso.
-              w-64 fixed top-0 left-0
-              ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
-            `}
+  if (!isLoggedIn) {
+    return (
+      <div className="h-screen w-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-50 antialiased relative">
+        <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
+          <button
+            onClick={handleQuickTestLogin}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white shadow-md transition-all active:scale-95"
           >
-            <div className="p-6">
-              <img src={logo} className="w-40 h-auto" />
-              <p className="text-slate-700 dark:text-slate-400 text-xs mt-4">
-                Painel Solucell
+            <Zap className="w-3.5 h-3.5 fill-current" />
+            Entrar em Modo Demonstração
+          </button>
+
+          <button
+            onClick={toggleTheme}
+            className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 shadow-sm transition-all"
+            aria-label="Alternar tema"
+          >
+            {isDarkMode ? (
+              <Sun className="w-4 h-4" />
+            ) : (
+              <Moon className="w-4 h-4" />
+            )}
+          </button>
+        </div>
+
+        <LoginPage auth={auth} onLoginSuccess={handleLoginSuccess} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-50 flex w-full min-h-screen font-sans antialiased selection:bg-emerald-500/30">
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm z-40 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <aside
+        className={`
+          bg-white dark:bg-slate-900 border-r border-slate-200/80 dark:border-slate-800/80 
+          transition-all duration-300 ease-in-out overflow-y-auto flex flex-col h-screen z-50
+          fixed top-0 left-0 w-64
+          ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
+          md:translate-x-0
+        `}
+      >
+        <div className="p-6 flex flex-col gap-1.5 border-b border-slate-100 dark:border-slate-800/50">
+          <div className="flex items-center justify-between">
+            <img
+              src={logo}
+              alt="Solucell Logo"
+              className="w-32 h-auto object-contain"
+            />
+
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="md:hidden p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <p className="text-[10px] tracking-wider uppercase font-semibold text-slate-400 dark:text-slate-500 mt-2">
+            Painel Administrativo
+          </p>
+        </div>
+
+        <nav className="flex-1 px-4 py-6 space-y-1">
+          {navigation.map((item) => {
+            const Icon = item.icon;
+            const active = currentPage === item.id;
+
+            return (
+              <button
+                key={item.id}
+                onClick={() => handleNavigation(item.id)}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
+                  active
+                    ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/20"
+                    : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-200"
+                }`}
+              >
+                <Icon className={`w-4 h-4 ${active ? "scale-110" : ""}`} />
+                <span>{item.name}</span>
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="p-4 border-t border-slate-200/60 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-900/50">
+          <div className="flex flex-col gap-3">
+            <div className="px-2">
+              <p className="text-slate-800 dark:text-slate-200 font-semibold text-sm truncate">
+                {currentUser.email.split("@")[0]}
+              </p>
+
+              <p className="text-slate-400 dark:text-slate-500 text-xs truncate">
+                {currentUser.email}
               </p>
             </div>
 
-            <div className="flex-1 px-6">
-              <nav className="space-y-2 pb-6">
-                {navigation.map((item) => {
-                  const Icon = item.icon;
-                  const active = currentPage === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => handleNavigation(item.id)}
-                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
-                        active
-                          ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20"
-                          : "text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                      }`}
-                    >
-                      <Icon className="w-5 h-5" />
-                      <span>{item.name}</span>
-                    </button>
-                  );
-                })}
-              </nav>
-            </div>
-
-            <div
-              className={`p-6 border-t border-slate-300 dark:border-slate-800`}
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-semibold bg-rose-50 hover:bg-rose-100 dark:bg-rose-500/10 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded-xl transition-all"
             >
-              <div className="flex items-center gap-3 mb-4">
-                <div>
-                  <p className="text-slate-900 dark:text-white font-medium text-sm">
-                    {currentUser.email}
-                  </p>
-                  <p className="text-slate-600 dark:text-slate-400 text-xs">
-                    {currentUser.role}
-                  </p>
-                </div>
-              </div>
+              <LogOut className="w-3.5 h-3.5" />
+              Sair da Conta
+            </button>
+          </div>
+        </div>
+      </aside>
 
-              <button
-                onClick={handleLogout}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-all"
-              >
-                <LogOut className="w-4 h-4" /> Sair
-              </button>
-            </div>
-          </aside>
-        </>
-      )}
-
-      <main
-        className={`flex-1 flex flex-col min-h-screen transition-all w-full
-            // Desktop (md e acima): Adiciona margem à esquerda e ocupa o restante da tela.
-            md:ml-64
-        `}
-      >
-        {isLoggedIn && (
-          <header className="bg-white dark:bg-slate-900 border-b border-slate-300 dark:border-slate-800 px-6 py-4 flex items-center justify-between sticky top-0 z-40">
-            
-            {/* 🖥️ Oculta o botão de toggle em telas md e maiores */}
+      <main className="flex-1 flex flex-col min-h-screen transition-all duration-300 w-full md:ml-64">
+        <header className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200/60 dark:border-slate-800/60 px-4 md:px-8 py-4 flex items-center justify-between sticky top-0 z-40">
+          <div className="flex items-center gap-4">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="text-slate-700 dark:text-slate-400 md:hidden"
+              className="text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 p-2 rounded-xl md:hidden transition-colors"
             >
-              {sidebarOpen ? (
-                <X className="w-6 h-6" />
-              ) : (
-                <Menu className="w-6 h-6" />
-              )}
+              <Menu className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-4">
-                {/* Título da Página Atual (Visível apenas no Mobile) */}
-                <span className="md:hidden text-lg font-semibold text-slate-800 dark:text-white">
-                    {navigation.find(item => item.id === currentPage)?.name || 'Painel'}
-                </span>
+            <h1 className="text-lg md:text-xl font-bold text-slate-800 dark:text-white capitalize">
+              {navigation.find((item) => item.id === currentPage)?.name ||
+                "Painel"}
+            </h1>
+          </div>
 
-              <button
-                onClick={toggleTheme}
-                className="p-2 rounded-lg bg-slate-200 dark:bg-slate-800"
-              >
-                <Sun className="w-5 h-5 text-white" />
-              </button>
-            </div>
-          </header>
-        )}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={toggleTheme}
+              className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-all duration-200"
+            >
+              {isDarkMode ? (
+                <Sun className="w-4 h-4" />
+              ) : (
+                <Moon className="w-4 h-4" />
+              )}
+            </button>
+          </div>
+        </header>
 
-        <div className="flex-1">{renderPage()}</div>
+        <div className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto">
+          {renderPage()}
+        </div>
       </main>
     </div>
   );
