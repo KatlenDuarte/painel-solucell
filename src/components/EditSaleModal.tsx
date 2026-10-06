@@ -7,7 +7,7 @@ import { X, Search, Plus, Minus, Trash2, Loader2, PackagePlus, Tag, Smartphone, 
 import { doc, getDoc } from "../lib/firestore";
 import { db } from "../lib/firebase";
 import { useStoreData } from "../contexts/StoreDataContext";
-import { updateSaleItems, type EditedItem } from "../lib/saleActions";
+import { updateSaleItems, type EditedItem, friendlyError } from "../lib/saleActions";
 import { formatBRL } from "../lib/format";
 
 interface SaleRef { id: string }
@@ -172,7 +172,7 @@ export default function EditSaleModal({ sale, isOpen, onClose, onSave }: EditSal
             onSave();
             onClose();
         } catch (e) {
-            setError(e instanceof Error ? e.message : "Não foi possível salvar.");
+            setError(friendlyError(e, "Não foi possível salvar."));
         } finally {
             setSaving(false);
         }

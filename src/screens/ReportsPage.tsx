@@ -34,6 +34,10 @@ interface FormattedPayment {
     value: number;
 }
 
+// Resultados por período guardados por 10 min (o relatório lê muitas vendas de uma vez)
+const REPORT_CACHE = new Map<string, { at: number; data: SaleData[] }>();
+const REPORT_CACHE_MS = 10 * 60 * 1000;
+
 const EXCLUDED_STORE_EMAIL = "minha-loja@exemplo.com";
 const EXCLUDED_STORE_NORMALIZED = EXCLUDED_STORE_EMAIL.toLowerCase().trim();
 
@@ -147,6 +151,15 @@ export default function Reports() {
                 // Trava de segurança para limitar volume
                 constraints.push(limit(2000));
 
+                // Cache por período: trocar filtro, loja ou voltar à tela não relê o Firebase
+                const key = `${start?.getTime() ?? 0}-${end?.getTime() ?? 0}`;
+                const hit = REPORT_CACHE.get(key);
+                const ttl = !end || end.getTime() > Date.now() - 86400000 ? 2 * 60 * 1000 : REPORT_CACHE_MS; // período de hoje: cache curto
+                if (hit && Date.now() - hit.at < ttl) {
+                    setSales(hit.data);
+                    return;
+                }
+
                 const q = query(collection(db, "sales"), ...constraints);
                 const snapshot = await getDocs(q);
 
@@ -158,6 +171,7 @@ export default function Reports() {
                     items: Array.isArray(doc.data().items) ? doc.data().items.filter(Boolean) : [],
                 } as SaleData));
 
+                REPORT_CACHE.set(key, { at: Date.now(), data });
                 setSales(data);
             } catch (error) {
                 console.error("Erro ao buscar vendas:", error);

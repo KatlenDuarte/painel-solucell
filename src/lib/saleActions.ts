@@ -226,3 +226,12 @@ export async function updateSaleItems(saleId: string, items: EditedItem[], disco
     });
     return total;
 }
+
+/** Mensagem amigável para erros do Firebase mostrados nas telas. */
+export function friendlyError(e: unknown, fallback: string) {
+    const code = (e as { code?: string })?.code || "";
+    if (code === "resource-exhausted") return "O limite diário do Firebase foi atingido. Tente de novo mais tarde (a cota renova todo dia de madrugada).";
+    if (code === "permission-denied") return "Sem permissão no Firebase para esta ação. Verifique as regras de segurança.";
+    if (code === "unavailable") return "Sem conexão com o servidor. Verifique a internet e tente de novo.";
+    return e instanceof Error && e.message && !e.message.startsWith("FirebaseError") && !code ? e.message : fallback;
+}

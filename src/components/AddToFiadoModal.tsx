@@ -5,7 +5,7 @@
 import { useMemo, useState } from "react";
 import { X, Search, Plus, Minus, Trash2, Loader2, PackagePlus, Tag } from "lucide-react";
 import { useStoreData } from "../contexts/StoreDataContext";
-import { addToFiado, type FiadoAddition } from "../lib/saleActions";
+import { addToFiado, type FiadoAddition, friendlyError } from "../lib/saleActions";
 import { formatBRL } from "../lib/format";
 
 interface Props {
@@ -77,7 +77,7 @@ export default function AddToFiadoModal({ saleId, clientName, currentTotal, onCl
             const added = await addToFiado(saleId, lines.map(({ id, name, price, saleQty }) => ({ id, name, price, saleQty })));
             onDone(added);
         } catch (e) {
-            setError(e instanceof Error ? e.message : "Não foi possível lançar. Tente novamente.");
+            setError(friendlyError(e, "Não foi possível lançar. Tente novamente."));
         } finally {
             setSaving(false);
         }

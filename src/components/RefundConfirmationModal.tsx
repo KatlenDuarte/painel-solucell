@@ -4,7 +4,7 @@
 
 import React, { useState } from "react";
 import { Undo2, X, PackagePlus, Loader2 } from "lucide-react";
-import { refundSale } from "../lib/saleActions";
+import { refundSale, friendlyError } from "../lib/saleActions";
 
 interface RefundItem { id?: string; name: string; saleQty: number }
 
@@ -36,7 +36,7 @@ const RefundConfirmationModal: React.FC<RefundConfirmationModalProps> = ({ saleI
             onClose();
         } catch (e) {
             console.error("Erro ao estornar venda:", e);
-            setError(e instanceof Error ? e.message : "Não foi possível estornar. Tente novamente.");
+            setError(friendlyError(e, "Não foi possível estornar. Tente novamente."));
         } finally {
             setLoading(false);
         }
