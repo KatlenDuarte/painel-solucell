@@ -1,0 +1,4 @@
+# Programa local da impressora (Windows) e scripts de administração: não vão para a Vercel
+printer-server
+setUserClaims.js
+serviceAccountKey.json
