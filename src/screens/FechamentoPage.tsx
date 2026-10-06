@@ -31,6 +31,13 @@ interface SoldItem {
 
 export default function FechamentoPage({ storeEmail }: { storeEmail: string }) {
     const [isLoading, setIsLoading] = useState(true);
+    // Regras do Firebase ainda não liberam as coleções do caixa (cash_sessions / outflows)
+    const [blocked, setBlocked] = useState(false);
+    const denied = (e: unknown) => (e as { code?: string })?.code === "permission-denied";
+    const failMsg = (e: unknown, msg: string) => {
+        if (denied(e)) { setBlocked(true); alert("O Firebase desta loja ainda não permite usar o caixa. É preciso liberar as coleções do caixa nas regras do Firebase."); }
+        else alert(msg);
+    };
     const [isClosing, setIsClosing] = useState(false);
     const [isOpening, setIsOpening] = useState(false);
 
@@ -123,6 +130,7 @@ export default function FechamentoPage({ storeEmail }: { storeEmail: string }) {
             })));
 
         } catch (e) {
+            if (denied(e)) setBlocked(true);
             console.error("Erro ao carregar dados:", e);
         }
     }, [storeEmail]);
@@ -156,6 +164,7 @@ export default function FechamentoPage({ storeEmail }: { storeEmail: string }) {
                 setCurrentSessionId(null);
             }
         } catch (e) {
+            if (denied(e)) setBlocked(true);
             console.error(e);
         } finally {
             setIsLoading(false);
@@ -247,7 +256,7 @@ export default function FechamentoPage({ storeEmail }: { storeEmail: string }) {
             setMovements([]);
             setSummary({ pix: 0, cartao: 0, dinheiro: 0, fiado: 0 });
         } catch (e) {
-            alert("Erro ao fechar o caixa.");
+            failMsg(e, "Erro ao fechar o caixa.");
         } finally {
             setIsClosing(false);
         }
@@ -272,7 +281,7 @@ export default function FechamentoPage({ storeEmail }: { storeEmail: string }) {
             setNewAmount("");
             await fetchData(currentSessionId, openedAtTimestamp);
         } catch (e) {
-            alert("Erro ao salvar.");
+            failMsg(e, "Erro ao salvar.");
         }
     };
 
@@ -282,7 +291,7 @@ export default function FechamentoPage({ storeEmail }: { storeEmail: string }) {
             await deleteDoc(doc(db, "outflows", id));
             if (currentSessionId && openedAtTimestamp) await fetchData(currentSessionId, openedAtTimestamp);
         } catch (e) {
-            alert("Erro ao deletar.");
+            failMsg(e, "Erro ao deletar.");
         }
     };
 
@@ -300,7 +309,7 @@ export default function FechamentoPage({ storeEmail }: { storeEmail: string }) {
             setTempInitialBalance("");
             await checkActiveSession();
         } catch (e) {
-            alert("Erro ao abrir caixa.");
+            failMsg(e, "Erro ao abrir caixa.");
         } finally {
             setIsOpening(false);
         }
@@ -316,6 +325,12 @@ export default function FechamentoPage({ storeEmail }: { storeEmail: string }) {
     if (!isCashOpen) {
         return (
             <Page narrow>
+                {blocked && (
+                    <div role="alert" className="rounded-xl border border-warning/25 bg-warning-soft px-4 py-3 text-sm text-warning">
+                        <b>Caixa bloqueado pelo Firebase.</b> As regras de segurança desta loja ainda não liberam o caixa
+                        (coleções <code>cash_sessions</code> e <code>outflows</code>). Depois de liberar, recarregue a página.
+                    </div>
+                )}
                 <PageHeader
                     title="Fechamento de caixa"
                     description="Abra o turno informando o fundo de troco. As vendas do dia são somadas automaticamente."
@@ -358,6 +373,12 @@ export default function FechamentoPage({ storeEmail }: { storeEmail: string }) {
 
     return (
         <Page>
+            {blocked && (
+                    <div role="alert" className="rounded-xl border border-warning/25 bg-warning-soft px-4 py-3 text-sm text-warning">
+                        <b>Caixa bloqueado pelo Firebase.</b> As regras de segurança desta loja ainda não liberam o caixa
+                        (coleções <code>cash_sessions</code> e <code>outflows</code>). Depois de liberar, recarregue a página.
+                    </div>
+                )}
             <PageHeader
                 title="Fechamento de caixa"
                 description={`Turno aberto em ${cashOpenedAt}.`}

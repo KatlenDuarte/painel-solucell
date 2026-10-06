@@ -219,8 +219,11 @@ function App() {
                 if (!snap.exists()) await setDoc(ref, { pin: DEFAULT_PIN, updatedAt: new Date() });
                 if (alive) setSecurityPin(pin);
             } catch (e) {
-                console.error("Erro ao carregar o PIN:", e);
-                if (alive) setSecurityPin(DEFAULT_PIN);
+                // Sem permissão em "settings": usa o PIN salvo neste navegador (ou o padrão)
+                if ((e as { code?: string })?.code !== "permission-denied") console.error("Erro ao carregar o PIN:", e);
+                let local = "";
+                try { local = localStorage.getItem("solucell-pin") || ""; } catch { /* sem armazenamento */ }
+                if (alive) setSecurityPin(/^\d{4}$/.test(local) ? local : DEFAULT_PIN);
             }
         })();
         return () => { alive = false; };

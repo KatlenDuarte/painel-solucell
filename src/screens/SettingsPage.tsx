@@ -100,9 +100,13 @@ export default function SettingsPage({ currentPin, onPinChange }: SettingsPagePr
             try {
                 await setDoc(doc(db, "settings", "security"), { pin: securityPin, updatedAt: new Date() }, { merge: true });
             } catch (e) {
-                console.error(e);
-                setError("Não foi possível salvar o PIN. Verifique a conexão e tente novamente.");
-                return;
+                if ((e as { code?: string })?.code !== "permission-denied") {
+                    console.error(e);
+                    setError("Não foi possível salvar o PIN. Verifique a conexão e tente novamente.");
+                    return;
+                }
+                // Firebase sem permissão em "settings": guarda o PIN só neste navegador
+                try { localStorage.setItem("solucell-pin", securityPin); } catch { /* sem armazenamento */ }
             }
             onPinChange(securityPin);
 
