@@ -10,6 +10,9 @@ import {
 } from "lucide-react";
 import { Page, PageHeader, Card, StatCard, Button, Badge, Segmented, SearchInput, EmptyState, LoadingState, ListRow, type Tone } from "../components/ui";
 import { formatBRL } from "../lib/format";
+import { useStoreData } from "../contexts/StoreDataContext";
+import { STORES, STORE_LABEL } from "../lib/stores";
+import { Store } from "lucide-react";
 
 interface SaleData {
     id: string;
@@ -34,7 +37,11 @@ interface FormattedPayment {
 const EXCLUDED_STORE_EMAIL = "minha-loja@exemplo.com";
 const EXCLUDED_STORE_NORMALIZED = EXCLUDED_STORE_EMAIL.toLowerCase().trim();
 
+type StoreView = "atual" | "ambas" | string;
+
 export default function Reports() {
+    const { storeEmail } = useStoreData();
+    const [storeView, setStoreView] = useState<StoreView>("atual");
     const [sales, setSales] = useState<SaleData[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -138,7 +145,7 @@ export default function Reports() {
                 constraints.push(orderBy("timestamp", "desc"));
                 
                 // Trava de segurança para limitar volume
-                constraints.push(limit(500));
+                constraints.push(limit(2000));
 
                 const q = query(collection(db, "sales"), ...constraints);
                 const snapshot = await getDocs(q);
@@ -164,7 +171,7 @@ export default function Reports() {
 
     const isSaleValid = (sale: SaleData) => {
         const status = sale.status?.toLowerCase();
-        const isCompleted = !status || status === "completed" || status === "active";
+        const isCompleted = !status || status === "completed" || status === "active" || status === "fiado_quitado";
         const isNotExcluded = sale.store.toLowerCase().trim() !== EXCLUDED_STORE_NORMALIZED;
         return isCompleted && isNotExcluded;
     };
@@ -183,8 +190,18 @@ export default function Reports() {
     };
 
     // Filtros adicionais na memória (Apenas texto, método de pagamento e ordenação)
+    // Lojas incluídas no relatório
+    const viewStores = useMemo(() => {
+        if (storeView === "atual") return [storeEmail];
+        if (storeView === "ambas") return STORES.map(st => st.email as string);
+        return [storeView];
+    }, [storeView, storeEmail]);
+    const isMulti = viewStores.length > 1;
+    const viewLabel = storeView === "ambas" ? "Vila Esportiva + Jardim da Glória" : STORE_LABEL[viewStores[0]] || viewStores[0];
+
     const processedSales = useMemo(() => {
         const filtered = sales.filter(sale => {
+            if (!viewStores.includes(sale.store.toLowerCase())) return false;
             if (!isSaleValid(sale)) return false;
 
             const searchLower = searchTerm.toLowerCase();
@@ -213,16 +230,16 @@ export default function Reports() {
             if (sortDirection === "asc") return a.total - b.total;
             return b.total - a.total;
         });
-    }, [sales, searchTerm, paymentFilter, sortDirection]);
+    }, [sales, searchTerm, paymentFilter, sortDirection, viewStores]);
 
     // Métricas
-    const metrics = useMemo(() => {
+    const computeMetrics = useCallback((list: SaleData[]) => {
         let totalRevenue = 0;
         let totalPix = 0;
         let totalCartao = 0;
         let totalDinheiro = 0;
 
-        processedSales.forEach(sale => {
+        list.forEach(sale => {
             totalRevenue += sale.total;
             const splits = getSplitPayments(sale);
 
@@ -235,16 +252,24 @@ export default function Reports() {
             } else {
                 const method = (sale.paymentMethod || "").toUpperCase();
                 if (method.includes("PIX")) totalPix += sale.total;
-                if (method.includes("CARTA")) totalCartao += sale.total;
+                if (method.includes("CART")) totalCartao += sale.total;
                 if (method.includes("DINHEIRO")) totalDinheiro += sale.total;
             }
         });
 
-        const totalSales = processedSales.length;
+        const totalSales = list.length;
         const avgTicket = totalSales > 0 ? totalRevenue / totalSales : 0;
 
         return { totalRevenue, totalPix, totalCartao, totalDinheiro, totalSales, avgTicket };
-    }, [processedSales]);
+    }, []);
+
+    const metrics = useMemo(() => computeMetrics(processedSales), [processedSales, computeMetrics]);
+
+    // Comparativo por loja (quando o relatório junta as duas)
+    const byStore = useMemo(() => viewStores.map(email => {
+        const m = computeMetrics(processedSales.filter(s => s.store.toLowerCase() === email));
+        return { email, label: STORE_LABEL[email] || email, ...m, share: metrics.totalRevenue ? m.totalRevenue / metrics.totalRevenue : 0 };
+    }), [viewStores, processedSales, computeMetrics, metrics.totalRevenue]);
 
     const paymentTone = (method?: string): Tone => {
         const m = (method || "").toUpperCase();
@@ -277,7 +302,7 @@ export default function Reports() {
         pdf.text("Solucell · Relatório de vendas", 14, 18);
         pdf.setFontSize(10);
         pdf.setTextColor(100);
-        pdf.text(`Período: ${periodLabel}   ·   Gerado em ${new Date().toLocaleString("pt-BR")}`, 14, 25);
+        pdf.text(`Loja: ${viewLabel}   ·   Período: ${periodLabel}   ·   Gerado em ${new Date().toLocaleString("pt-BR")}`, 14, 25);
 
         autoTable(pdf, {
             startY: 32,
@@ -291,14 +316,26 @@ export default function Reports() {
             styles: { fontSize: 9 },
         });
 
+        if (isMulti) {
+            autoTable(pdf, {
+                startY: (pdf as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6,
+                head: [["Loja", "Faturamento", "Participação", "Vendas", "Ticket médio", "PIX", "Cartão", "Dinheiro"]],
+                body: byStore.map(b => [b.label, formatBRL(b.totalRevenue), `${Math.round(b.share * 100)}%`, String(b.totalSales), formatBRL(b.avgTicket), formatBRL(b.totalPix), formatBRL(b.totalCartao), formatBRL(b.totalDinheiro)]),
+                theme: "grid",
+                headStyles: { fillColor: [40, 44, 52] },
+                styles: { fontSize: 8 },
+            });
+        }
+
         autoTable(pdf, {
             startY: (pdf as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8,
-            head: [["Data", "Itens", "Pagamento", "Valor"]],
+            head: [isMulti ? ["Data", "Loja", "Itens", "Pagamento", "Valor"] : ["Data", "Itens", "Pagamento", "Valor"]],
             body: processedSales.map(sale => {
                 const d = sale.timestamp?.toDate?.();
                 const splits = getSplitPayments(sale);
                 return [
                     d ? `${d.toLocaleDateString("pt-BR")} ${d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : "—",
+                    ...(isMulti ? [STORE_LABEL[sale.store.toLowerCase()] || sale.store] : []),
                     describeItems(sale),
                     splits.length ? splits.map(p => `${p.method} ${formatBRL(p.value)}`).join(" + ") : (sale.paymentMethod || "—"),
                     formatBRL(sale.total),
@@ -307,10 +344,12 @@ export default function Reports() {
             theme: "striped",
             headStyles: { fillColor: [40, 44, 52] },
             styles: { fontSize: 8, cellPadding: 2 },
-            columnStyles: { 0: { cellWidth: 28 }, 2: { cellWidth: 36 }, 3: { cellWidth: 24, halign: "right" } },
+            columnStyles: isMulti
+                ? { 0: { cellWidth: 26 }, 1: { cellWidth: 26 }, 3: { cellWidth: 34 }, 4: { cellWidth: 22, halign: "right" } }
+                : { 0: { cellWidth: 28 }, 2: { cellWidth: 36 }, 3: { cellWidth: 24, halign: "right" } },
         });
 
-        pdf.save(`relatorio_vendas_${new Date().toISOString().slice(0, 10)}.pdf`);
+        pdf.save(`relatorio_${storeView === "ambas" ? "duas-lojas" : (viewStores[0] || "loja").split("@")[0]}_${new Date().toISOString().slice(0, 10)}.pdf`);
     };
 
     if (loading) return <LoadingState label="Carregando relatório..." />;
@@ -325,9 +364,25 @@ export default function Reports() {
             <PageHeader
                 title="Relatórios"
                 description="Analise as vendas por período, forma de pagamento e exporte em PDF."
-                meta={<Badge tone="neutral"><Calendar size={12} /> {periodLabel}</Badge>}
+                meta={<><Badge tone="neutral"><Store size={12} /> {viewLabel}</Badge><Badge tone="neutral"><Calendar size={12} /> {periodLabel}</Badge></>}
                 actions={<Button variant="primary" icon={Download} onClick={exportToPDF} disabled={processedSales.length === 0}>Exportar PDF</Button>}
             />
+
+            {/* Loja */}
+            <Card padded={false}>
+                <div className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-sm font-medium text-fg">Lojas no relatório</p>
+                    <Segmented
+                        value={storeView === "atual" && STORES.some(st => st.email === storeEmail) ? storeEmail : storeView}
+                        onChange={(v) => setStoreView(v === storeEmail ? "atual" : v)}
+                        options={[
+                            ...(STORES.some(st => st.email === storeEmail) ? [] : [{ value: "atual", label: "Esta conta" }]),
+                            ...STORES.map(st => ({ value: st.email as string, label: st.email === storeEmail ? `${st.label} (atual)` : st.label })),
+                            { value: "ambas", label: "As duas juntas" },
+                        ]}
+                    />
+                </div>
+            </Card>
 
             {/* Filtros */}
             <Card padded={false}>
@@ -383,6 +438,34 @@ export default function Reports() {
                 <StatCard label="Ticket médio" value={formatBRL(metrics.avgTicket)} icon={CreditCard} hint="Faturamento ÷ número de vendas" />
             </div>
 
+            {isMulti && (
+                <Card padded={false} className="overflow-hidden">
+                    <div className="border-b border-line px-5 py-4">
+                        <h3 className="text-[15px] font-semibold text-fg">Comparativo entre as lojas</h3>
+                        <p className="mt-0.5 text-xs text-fg-subtle">{periodLabel}</p>
+                    </div>
+                    <div className="grid gap-px bg-line sm:grid-cols-2">
+                        {byStore.map(b => (
+                            <div key={b.email} className="space-y-3 bg-surface p-5">
+                                <div className="flex items-center justify-between">
+                                    <p className="font-semibold text-fg">{b.label}</p>
+                                    <Badge tone="neutral">{Math.round(b.share * 100)}% do total</Badge>
+                                </div>
+                                <p className="text-2xl font-semibold tracking-tight text-fg tabular">{formatBRL(b.totalRevenue)}</p>
+                                <div className="h-1.5 overflow-hidden rounded-full bg-hover"><div className="h-full rounded-full bg-primary" style={{ width: `${Math.round(b.share * 100)}%` }} /></div>
+                                <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+                                    <dt className="text-fg-subtle">Vendas</dt><dd className="text-right font-medium text-fg tabular">{b.totalSales}</dd>
+                                    <dt className="text-fg-subtle">Ticket médio</dt><dd className="text-right font-medium text-fg tabular">{formatBRL(b.avgTicket)}</dd>
+                                    <dt className="text-fg-subtle">PIX</dt><dd className="text-right text-fg-muted tabular">{formatBRL(b.totalPix)}</dd>
+                                    <dt className="text-fg-subtle">Cartão</dt><dd className="text-right text-fg-muted tabular">{formatBRL(b.totalCartao)}</dd>
+                                    <dt className="text-fg-subtle">Dinheiro</dt><dd className="text-right text-fg-muted tabular">{formatBRL(b.totalDinheiro)}</dd>
+                                </dl>
+                            </div>
+                        ))}
+                    </div>
+                </Card>
+            )}
+
             <Card padded={false} className="overflow-hidden">
                 <div className="flex flex-col gap-3 border-b border-line p-4 md:flex-row md:items-center md:justify-between">
                     <SearchInput icon={Search} value={searchTerm} onChange={setSearchTerm} placeholder="Buscar por item ou código da venda..." className="w-full md:w-80" />
@@ -413,7 +496,7 @@ export default function Reports() {
                                     key={sale.id}
                                     title={<span className="line-clamp-2">{describeItems(sale)}</span>}
                                     value={formatBRL(sale.total)}
-                                    subtitle={d ? `${d.toLocaleDateString("pt-BR")} · ${d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : "—"}
+                                    subtitle={`${isMulti ? `${STORE_LABEL[sale.store.toLowerCase()] || sale.store} · ` : ""}${d ? `${d.toLocaleDateString("pt-BR")} · ${d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : "—"}`}
                                     meta={splits.length > 0
                                         ? splits.map((p, idx) => <Badge key={idx} tone={paymentTone(p.method)}>{p.method.charAt(0) + p.method.slice(1).toLowerCase()} {formatBRL(p.value)}</Badge>)
                                         : <Badge tone={paymentTone(sale.paymentMethod)}>{sale.paymentMethod || "Não informado"}</Badge>}
@@ -429,6 +512,7 @@ export default function Reports() {
                         <table className="ui-table min-w-[720px]">
                             <thead>
                                 <tr>
+                                    {isMulti && <th>Loja</th>}
                                     <th>Itens</th>
                                     <th>Pagamento</th>
                                     <th>Data</th>
@@ -441,6 +525,7 @@ export default function Reports() {
                                     const d = sale.timestamp?.toDate?.();
                                     return (
                                         <tr key={sale.id}>
+                                            {isMulti && <td><Badge>{STORE_LABEL[sale.store.toLowerCase()] || sale.store}</Badge></td>}
                                             <td className="max-w-[460px]">
                                                 <p className="truncate text-fg">{describeItems(sale)}</p>
                                                 <p className="mt-0.5 font-mono text-[11px] text-fg-faint select-all">{sale.id}</p>
@@ -465,7 +550,7 @@ export default function Reports() {
                             </tbody>
                             <tfoot>
                                 <tr>
-                                    <td colSpan={3} className="border-t border-line bg-subtle px-4 py-3 text-sm font-medium text-fg">Total ({metrics.totalSales} vendas)</td>
+                                    <td colSpan={isMulti ? 4 : 3} className="border-t border-line bg-subtle px-4 py-3 text-sm font-medium text-fg">Total ({metrics.totalSales} vendas)</td>
                                     <td className="border-t border-line bg-subtle px-4 py-3 text-right text-sm font-semibold text-fg tabular">{formatBRL(metrics.totalRevenue)}</td>
                                 </tr>
                             </tfoot>
