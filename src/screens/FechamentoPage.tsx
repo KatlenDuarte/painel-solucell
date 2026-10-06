@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { useStoreData } from "../contexts/StoreDataContext";
 import {
     Trash2, Package, Wallet,
     CheckCircle2, FileText, ArrowUpCircle, ArrowDownCircle,
@@ -9,7 +10,7 @@ import { formatBRL } from "../lib/format";
 
 import {
     collection, getDocs, query, where, addDoc,
-    serverTimestamp, deleteDoc, doc, updateDoc, limit, orderBy, Timestamp
+    serverTimestamp, deleteDoc, doc, updateDoc, limit, onSnapshot, Timestamp
 } from "../lib/firestore";
 import { db } from "../lib/firebase";
 
@@ -23,6 +24,14 @@ interface Outflow {
     type: 'in' | 'out';
     time: string;
 }
+
+// Valores em formato brasileiro: "1.234,56" -> 1234.56 (também aceita "1234.56")
+const parseMoney = (v: string) => {
+    const t = (v || "").trim().replace(/[^\d,.-]/g, "");
+    if (!t) return NaN;
+    const normalized = t.includes(",") ? t.replace(/\./g, "").replace(",", ".") : t;
+    return Number(normalized);
+};
 
 interface SoldItem {
     name: string;
@@ -49,91 +58,81 @@ export default function FechamentoPage({ storeEmail }: { storeEmail: string }) {
     const [initialBalance, setInitialBalance] = useState(0);
     const [tempInitialBalance, setTempInitialBalance] = useState<string>("");
 
-    const [summary, setSummary] = useState({ pix: 0, cartao: 0, dinheiro: 0, fiado: 0 });
-    const [soldItems, setSoldItems] = useState<SoldItem[]>([]);
     const [movements, setMovements] = useState<Outflow[]>([]);
 
     const [newDesc, setNewDesc] = useState("");
     const [newAmount, setNewAmount] = useState("");
+    const [savingMov, setSavingMov] = useState<"in" | "out" | null>(null);
 
     // Estados do Modal de Fechamento Customizado
     const [isClosingModalOpen, setIsClosingModalOpen] = useState(false);
     const [physicalCashInput, setPhysicalCashInput] = useState("");
 
-    const fetchData = useCallback(async (sessionId: string, openedAt: Timestamp) => {
-        if (!storeEmail || !sessionId) return;
+    // Vendas: vêm do listener em tempo real da loja (sem consulta extra e sem índice composto)
+    const { sales: salesDocs } = useStoreData();
 
-        try {
-            const startOfDay = new Date();
-            startOfDay.setHours(0, 0, 0, 0);
-            const startOfDayTimestamp = Timestamp.fromDate(startOfDay);
+    const { summary, soldItems } = useMemo(() => {
+        const acc = { pix: 0, cartao: 0, dinheiro: 0, fiado: 0 };
+        const itemsMap: Record<string, number> = {};
+        if (!isCashOpen) return { summary: acc, soldItems: [] as SoldItem[] };
+        const fromMs = openedAtTimestamp?.toMillis?.() ?? new Date().setHours(0, 0, 0, 0);
 
-            const qSales = query(
-                collection(db, "sales"),
-                where("store", "==", storeEmail),
-                where("timestamp", ">=", startOfDayTimestamp),
-                orderBy("timestamp", "desc")
-            );
-            const salesSnap = await getDocs(qSales);
+        salesDocs.forEach(docSnap => {
+            const d = docSnap.data();
+            if (d.status === "refunded" || d.status === "cancelled" || d.status === "loss" || d.type === "perda") return;
+            // venda recém-criada ainda sem horário do servidor conta como "agora"
+            const ms = d.timestamp?.toMillis?.() ?? Date.now();
+            if (ms < fromMs) return;
 
-            let pix = 0, cartao = 0, din = 0, fiado = 0;
-            const itemsMap: Record<string, number> = {};
+            const valor = Number(d.total) || 0;
+            const add = (method: string, v: number) => {
+                const m = String(method || "").toUpperCase();
+                if (m.includes("PIX")) acc.pix += v;
+                else if (m.includes("CART")) acc.cartao += v;
+                else if (m.includes("DINHEIRO")) acc.dinheiro += v;
+                else if (m.includes("FIADO")) acc.fiado += v;
+            };
+            if (Array.isArray(d.multiplePayments) && d.multiplePayments.length > 0) {
+                d.multiplePayments.forEach((p: any) => add(p.method, Number(p.value) || 0));
+            } else {
+                add(d.paymentMethod, valor);
+            }
 
-            salesSnap.forEach(doc => {
-                const d = doc.data();
-
-                if (
-                    d.status === "refunded" ||
-                    d.status === "cancelled"
-                ) {
-                    return;
-                }
-
-                const valor = Number(d.total) || 0;
-
-                const add = (method: string, v: number) => {
-                    const m = String(method || "").toUpperCase();
-                    if (m.includes("PIX")) pix += v;
-                    else if (m.includes("CART")) cartao += v;
-                    else if (m.includes("DINHEIRO")) din += v;
-                    else if (m.includes("FIADO")) fiado += v;
-                };
-                if (Array.isArray(d.multiplePayments) && d.multiplePayments.length > 0) {
-                    d.multiplePayments.forEach((p: any) => add(p.method, Number(p.value) || 0));
-                } else {
-                    add(d.paymentMethod, valor);
-                }
-
-                d.items?.forEach((it: any) => {
-                    itemsMap[it.name] =
-                        (itemsMap[it.name] || 0) + (Number(it.saleQty ?? it.quantity) || 1);
-                });
+            d.items?.forEach((it: any) => {
+                const name = it?.name || "Item";
+                itemsMap[name] = (itemsMap[name] || 0) + (Number(it.saleQty ?? it.quantity) || 1);
             });
+        });
 
-            setSummary({ pix, cartao, dinheiro: din, fiado });
-            setSoldItems(Object.entries(itemsMap).map(([name, qty]) => ({ name, qty })));
+        return { summary: acc, soldItems: Object.entries(itemsMap).map(([name, qty]) => ({ name, qty })) };
+    }, [salesDocs, isCashOpen, openedAtTimestamp]);
 
-            const qMov = query(
-                collection(db, "outflows"),
-                where("store", "==", storeEmail),
-                where("sessionId", "==", sessionId),
-                orderBy("timestamp", "asc")
-            );
-
-            const movSnap = await getDocs(qMov);
-            setMovements(movSnap.docs.map(d => ({
-                id: d.id,
-                description: d.data().description,
-                amount: Number(d.data().amount),
-                type: d.data().type || 'out',
-                time: d.data().timestamp?.toDate()?.toLocaleTimeString("pt-BR") || "--:--"
-            })));
-
-        } catch (e) {
+    // Movimentações manuais do turno, em tempo real (consulta simples por sessionId)
+    useEffect(() => {
+        if (!currentSessionId) return;
+        const q = query(collection(db, "outflows"), where("sessionId", "==", currentSessionId));
+        return onSnapshot(q, (snap: { docs: { id: string; data: () => any }[] }) => {
+            const list = snap.docs
+                .map(d => ({ id: d.id, data: d.data() }))
+                .filter(x => !x.data.store || x.data.store === storeEmail)
+                .map(({ id, data }) => {
+                    const ts: Date | null = data.timestamp?.toDate?.() ?? null;
+                    return {
+                        id,
+                        description: String(data.description || ""),
+                        amount: Number(data.amount) || 0,
+                        type: (data.type === "in" ? "in" : "out") as "in" | "out",
+                        time: ts ? ts.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "agora",
+                        ms: ts ? ts.getTime() : Number.MAX_SAFE_INTEGER,
+                    };
+                })
+                .sort((a, b) => a.ms - b.ms);
+            setMovements(list);
+        }, (e: unknown) => {
             if (denied(e)) setBlocked(true);
-            console.error("Erro ao carregar dados:", e);
-        }
-    }, [storeEmail]);
+            console.error("Erro ao carregar movimentações:", e);
+        });
+    }, [currentSessionId, storeEmail]);
 
     const checkActiveSession = useCallback(async () => {
         if (!storeEmail) return;
@@ -157,8 +156,6 @@ export default function FechamentoPage({ storeEmail }: { storeEmail: string }) {
                 setInitialBalance(Number(data.initialBalance) || 0);
                 setCashOpenedAt(sessionOpenedAt?.toDate()?.toLocaleString("pt-BR") || "Data indisponível");
                 setIsCashOpen(true);
-
-                await fetchData(session.id, sessionOpenedAt);
             } else {
                 setIsCashOpen(false);
                 setCurrentSessionId(null);
@@ -169,7 +166,7 @@ export default function FechamentoPage({ storeEmail }: { storeEmail: string }) {
         } finally {
             setIsLoading(false);
         }
-    }, [storeEmail, fetchData]);
+    }, [storeEmail]);
 
     useEffect(() => {
         checkActiveSession();
@@ -179,7 +176,7 @@ export default function FechamentoPage({ storeEmail }: { storeEmail: string }) {
     const totalIn = movements.filter(m => m.type === 'in').reduce((acc, i) => acc + i.amount, 0);
     const saldoFinalGaveta = initialBalance + summary.dinheiro + totalIn - totalOut;
 
-    const parsedPhysicalCash = parseFloat(physicalCashInput.replace(',', '.')) || 0;
+    const parsedPhysicalCash = parseMoney(physicalCashInput) || 0;
     const currentDifference = parsedPhysicalCash - saldoFinalGaveta;
 
     const generateDetailedPDF = (physical: number, diff: number) => {
@@ -234,7 +231,7 @@ export default function FechamentoPage({ storeEmail }: { storeEmail: string }) {
     };
 
     const handleExecuteCloseCash = async () => {
-        const physicalCash = parseFloat(physicalCashInput.replace(',', '.'));
+        const physicalCash = parseMoney(physicalCashInput);
         if (isNaN(physicalCash)) return alert("Por favor, insira um valor válido para o dinheiro contado.");
 
         setIsClosing(true);
@@ -254,7 +251,7 @@ export default function FechamentoPage({ storeEmail }: { storeEmail: string }) {
             setIsCashOpen(false);
             setCurrentSessionId(null);
             setMovements([]);
-            setSummary({ pix: 0, cartao: 0, dinheiro: 0, fiado: 0 });
+            setOpenedAtTimestamp(null);
         } catch (e) {
             failMsg(e, "Erro ao fechar o caixa.");
         } finally {
@@ -263,15 +260,16 @@ export default function FechamentoPage({ storeEmail }: { storeEmail: string }) {
     };
 
     const handleAddMovement = async (type: 'in' | 'out') => {
-        const numericValue = parseFloat(newAmount.replace(',', '.'));
-        if (!newDesc || isNaN(numericValue) || !currentSessionId || !openedAtTimestamp) {
-            return alert("Preencha os campos corretamente.");
+        const numericValue = parseMoney(newAmount);
+        if (!newDesc.trim() || !(numericValue > 0) || !currentSessionId) {
+            return alert("Informe a descrição e um valor maior que zero.");
         }
 
+        setSavingMov(type);
         try {
             await addDoc(collection(db, "outflows"), {
                 store: storeEmail,
-                description: newDesc,
+                description: newDesc.trim(),
                 amount: numericValue,
                 type: type,
                 sessionId: currentSessionId,
@@ -279,9 +277,10 @@ export default function FechamentoPage({ storeEmail }: { storeEmail: string }) {
             });
             setNewDesc("");
             setNewAmount("");
-            await fetchData(currentSessionId, openedAtTimestamp);
         } catch (e) {
-            failMsg(e, "Erro ao salvar.");
+            failMsg(e, "Erro ao salvar a movimentação.");
+        } finally {
+            setSavingMov(null);
         }
     };
 
@@ -289,15 +288,14 @@ export default function FechamentoPage({ storeEmail }: { storeEmail: string }) {
         if (!confirm("Excluir esta movimentação?")) return;
         try {
             await deleteDoc(doc(db, "outflows", id));
-            if (currentSessionId && openedAtTimestamp) await fetchData(currentSessionId, openedAtTimestamp);
         } catch (e) {
             failMsg(e, "Erro ao deletar.");
         }
     };
 
     const handleOpenCash = async () => {
-        const val = parseFloat(tempInitialBalance.replace(',', '.'));
-        if (isNaN(val)) return alert("Por favor, insira um valor inicial válido.");
+        const val = parseMoney(tempInitialBalance);
+        if (isNaN(val) || val < 0) return alert("Por favor, insira um valor inicial válido.");
         setIsOpening(true);
         try {
             await addDoc(collection(db, "cash_sessions"), {
@@ -427,8 +425,8 @@ export default function FechamentoPage({ storeEmail }: { storeEmail: string }) {
                             <input placeholder="0,00" inputMode="decimal" value={newAmount} onChange={e => setNewAmount(e.target.value)} className="ui-input pl-9 tabular" />
                         </div>
                         <div className="flex gap-2">
-                            <Button icon={ArrowUpCircle} onClick={() => handleAddMovement('in')} className="flex-1 text-success">Entrada</Button>
-                            <Button icon={ArrowDownCircle} onClick={() => handleAddMovement('out')} className="flex-1 text-danger">Saída</Button>
+                            <Button icon={ArrowUpCircle} loading={savingMov === 'in'} disabled={!!savingMov} onClick={() => handleAddMovement('in')} className="flex-1 text-success">Entrada</Button>
+                            <Button icon={ArrowDownCircle} loading={savingMov === 'out'} disabled={!!savingMov} onClick={() => handleAddMovement('out')} className="flex-1 text-danger">Saída</Button>
                         </div>
                     </div>
                     {movements.length === 0 ? (
