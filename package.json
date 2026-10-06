@@ -1,27 +1,30 @@
 {
   "name": "painel-solucell",
   "private": true,
-  "version": "0.0.0",
-  "type": "commonjs",
   "homepage": "https://katlenduarte.github.io/painel-solucell",
+  "version": "0.0.0",
+  "type": "module",
   "scripts": {
     "dev": "vite",
-    "lint": "eslint .",
-    "preview": "vite preview",
     "build": "vite build",
     "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist"
+    "deploy": "gh-pages -d dist",
+    "lint": "eslint .",
+    "preview": "vite preview"
   },
   "dependencies": {
-    "date-fns": "^4.1.0",
+    "bwip-js": "^4.11.1",
     "firebase": "^12.6.0",
-    "firebase-admin": "^13.6.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^3.0.4",
-    "jspdf-autotable": "^5.0.8",
-    "lucide-react": "^0.553.0",
+    "jspdf-autotable": "^5.0.7",
+    "lucide-react": "^0.555.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-barcode": "^1.6.1",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.14.2",
+    "react-to-print": "^3.3.0",
+    "recharts": "^3.8.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
@@ -31,6 +34,7 @@
     "@types/react-dom": "^19.2.2",
     "@vitejs/plugin-react": "^5.1.0",
     "autoprefixer": "^10.4.22",
+    "baseline-browser-mapping": "^2.10.21",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",

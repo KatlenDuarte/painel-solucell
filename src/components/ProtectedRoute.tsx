@@ -67,7 +67,7 @@ export default function ProtectedRoute({ isUnlocked, onUnlock, children, require
     <div className="flex items-center justify-center h-screen bg-gradient-to-b from-slate-950 to-slate-900">
       <div className="p-10 rounded-2xl border border-slate-800 bg-slate-900/70 backdrop-blur-xl shadow-2xl w-96 text-center animate-fadeIn">
 
-        <h2 className="text-white text-2xl font-semibold mb-4">
+        <h2 className="text-slate-50 text-2xl font-semibold mb-4">
           Área Restrita
         </h2>
 
@@ -83,9 +83,7 @@ export default function ProtectedRoute({ isUnlocked, onUnlock, children, require
           maxLength={4}
           placeholder="••••"
           className={`
-            w-full px-4 py-3 rounded-xl text-center text-lg tracking-[0.4em]
-            outline-none transition-all duration-300 bg-slate-800/60 text-white 
-            border ${error ? "border-red-500 shake" : "border-slate-700"}
+            w-full px-4 py-3 rounded-xl text-center text-lg outline-none transition-all duration-300 bg-slate-800/60 text-slate-50 border ${error ? "border-red-500 shake" : "border-slate-700"}
             focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/40
           `}
         />
@@ -104,10 +102,7 @@ export default function ProtectedRoute({ isUnlocked, onUnlock, children, require
           <button
             disabled
             className="
-              w-full py-3 rounded-xl 
-              bg-gradient-to-r from-emerald-600 to-emerald-500 
-              text-white font-medium shadow-lg shadow-emerald-500/20
-              opacity-50 cursor-not-allowed
+              w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 text-white font-medium shadow-lg opacity-50 cursor-not-allowed
             "
           >
             Confirmar

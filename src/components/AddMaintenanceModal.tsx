@@ -1,29 +1,43 @@
-import React, { useState } from "react"
+// src/components/AddMaintenanceModal.tsx
+
+import React, { useState } from "react";
+
 import {
-  X, Smartphone, User, Phone, AlertCircle, Calendar, DollarSign,
-  FileText, Package, CreditCard
-} from 'lucide-react'
+  X,
+  Smartphone,
+  User,
+  Phone,
+  AlertCircle,
+  Calendar,
+  DollarSign,
+  FileText,
+  Package,
+  CreditCard,
+  Loader,
+  ShieldCheck,
+  Clock3,
+  Wrench,
+  BadgeDollarSign,
+  ClipboardList,
+  Sparkles
+} from "lucide-react";
 
-// 💡 IMPORTANTE: Importar a função de serviço
-import { addMaintenance } from "../services/maintenanceService"
+import { addMaintenance } from "../services/maintenanceService";
 
-import Modal from "./MaintenanceModal"
+import Modal from "./MaintenanceModal.tsx";
 
 interface AddMaintenanceModalProps {
-  onClose: () => void
-  // ⚠️ ATUALIZAÇÃO: O onSubmit deve ser chamado após o sucesso do Firebase, 
-  // e não mais recebendo 'data' diretamente, mas sim informando a conclusão.
-  onSubmit: () => void
-  // 💡 NOVO: Receber o e-mail da loja para salvar a manutenção no contexto correto
-  storeEmail: string
+  onClose: () => void;
+  onSubmit: () => void;
+  storeEmail: string;
 }
 
 const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
   onClose,
   onSubmit,
-  storeEmail // Recebendo o e-mail da loja
+  storeEmail
 }) => {
-  const [loading, setLoading] = useState(false) // Adicionado estado de loading
+  const [loading, setLoading] = useState(false);
 
   const [formData, setFormData] = useState({
     customer: "",
@@ -39,98 +53,195 @@ const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
     orderDate: "",
     deliveryDate: "",
     notes: ""
-  })
+  });
 
-  const brands = ["Apple", "Samsung", "Xiaomi", "Motorola", "LG", "Asus", "Realme", "Outro"]
+  const brands = [
+    "Apple",
+    "Samsung",
+    "Xiaomi",
+    "Motorola",
+    "LG",
+    "Asus",
+    "Realme",
+    "Outro"
+  ];
+
   const statusOptions = [
-    { value: "pending", label: "Aguardando" },
-    { value: "parts_ordered", label: "Peça Pedida" },
-    { value: "in_progress", label: "Em Reparo" },
-    { value: "completed", label: "Concluído" },
-    { value: "cancelled", label: "Cancelado" }
-  ]
+    {
+      value: "pending",
+      label: "Aguardando"
+    },
+    {
+      value: "parts_ordered",
+      label: "Peça Pedida"
+    },
+    {
+      value: "in_progress",
+      label: "Em Reparo"
+    },
+    {
+      value: "completed",
+      label: "Concluído"
+    },
+    {
+      value: "cancelled",
+      label: "Cancelado"
+    }
+  ];
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name, value, type } = e.target
-    setFormData(prev => ({
+  const handleChange = (
+    e:
+      | React.ChangeEvent<HTMLInputElement>
+      | React.ChangeEvent<HTMLSelectElement>
+      | React.ChangeEvent<HTMLTextAreaElement>
+  ) => {
+    const { name, value, type } = e.target;
+
+    setFormData((prev) => ({
       ...prev,
-      [name]: type === "checkbox" ? (e.target as HTMLInputElement).checked : value
-    }))
-  }
+      [name]:
+        type === "checkbox"
+          ? (e.target as HTMLInputElement).checked
+          : value
+    }));
+  };
 
-  // ⚠️ FUNÇÃO AJUSTADA PARA SER ASSÍNCRONA E USAR O SERVIÇO
+  // FUNÇÃO QUE DISPARA A IMPRESSÃO PARA O NODEJS LOCAL - CORRIGIDA!
+  const imprimirOrdemServico = async (maintenance: any) => {
+    try {
+      // Montamos o payload exatamente com o que a estrutura de OS do backend precisa
+      const dadosImpressao = {
+        isOS: true, // <--- ISSO AQUI ATIVA O SEU NOVO LAYOUT DE MANUTENÇÃO NO BACKEND
+        customer: maintenance.customer,
+        phone: maintenance.phone,
+        total: maintenance.value,
+        paymentMethod: maintenance.paid ? "Recebido / Antecipado" : "A Pagar na Retirada",
+        items: [
+          {
+            saleQty: 1,
+            name: `Aparelho: ${maintenance.device} ${maintenance.model || ""}`.trim(),
+            price: maintenance.value
+          },
+          {
+            saleQty: 1,
+            name: `Defeito: ${maintenance.issue}`,
+            price: 0
+          }
+        ]
+      };
+
+      await fetch("http://localhost:3333/print", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(dadosImpressao)
+      });
+      
+    } catch (printError) {
+      console.error("Falha ao mandar comando para a Elgin:", printError);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+    e.preventDefault();
 
-    if (!formData.customer || !formData.phone || !formData.device || !formData.issue) {
-      alert("Por favor, preencha todos os campos obrigatórios")
-      return
+    if (
+      !formData.customer ||
+      !formData.phone ||
+      !formData.device ||
+      !formData.issue
+    ) {
+      alert("Preencha todos os campos obrigatórios.");
+      return;
     }
 
-    setLoading(true)
-
-    // Prepara o objeto de dados final
-    const maintenanceData = {
-      ...formData,
-      // Converte o valor para número, garantindo 0 se for inválido
-      value: parseFloat(formData.value) || 0,
-      // 💡 IMPORTANTE: Inclui o e-mail da loja no objeto de dados
-      store: storeEmail,
-    }
+    setLoading(true);
 
     try {
-      // 🚀 CHAMA O SERVIÇO DE FIREBASE
-      await addMaintenance(maintenanceData)
+      const maintenanceData = {
+        ...formData,
+        value: parseFloat(formData.value) || 0,
+        store: storeEmail,
+        createdAt: new Date().toISOString()
+      };
 
-      // Se o salvamento for bem-sucedido:
-      onSubmit() // Notifica a página pai para recarregar ou fechar
-      onClose()
+      // 1. Salva no Firebase / Banco de dados
+      await addMaintenance(maintenanceData);
 
+      // 2. Dispara a impressão automática passando os dados certos da OS
+      await imprimirOrdemServico(maintenanceData);
+
+      onSubmit();
+      onClose();
     } catch (error) {
-      console.error("Erro ao adicionar manutenção:", error)
-      alert("Falha ao registrar a manutenção. Tente novamente.")
+      console.error(error);
+      alert("Erro ao adicionar manutenção.");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   return (
     <Modal onClose={onClose} size="large">
-      {/* Header com gradiente */}
-      <div className="relative mb-6 pb-6 border-b border-slate-200 dark:border-slate-700">
-        <div className="absolute top-0 left-0 right-0 h-24 bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 dark:from-emerald-500/5 dark:to-emerald-600/5 rounded-t-xl -mx-6 -mt-6" />
-        <div className="relative flex items-center justify-between">
+
+      {/* HEADER */}
+      <div className="relative overflow-hidden rounded-xl border border-slate-800 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 mb-6">
+        <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_top_right,_#3b82f6,_transparent_35%)]" />
+        <div className="relative flex items-start justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="w-14 h-14 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/30">
-              <Smartphone className="w-7 h-7 text-white" />
+            <div className="w-16 h-16 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shadow-lg">
+              <Wrench className="w-8 h-8 text-blue-400" />
             </div>
             <div>
-              <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-1">Nova Manutenção</h2>
-              <p className="text-sm text-slate-600 dark:text-slate-400">Registre um novo serviço de reparo</p>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="px-2 py-1 rounded-lg bg-blue-500/10 border border-blue-500/20 text-xs font-bold text-blue-400">
+                  Nova Ordem
+                </span>
+                <span className="px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs font-bold text-emerald-400">
+                  Sistema Técnico
+                </span>
+              </div>
+              <h2 className="text-2xl md:text-3xl font-semibold text-slate-50 tracking-tight">
+                Adicionar Manutenção
+              </h2>
+              <p className="text-slate-500 text-sm mt-2 max-w-xl">
+                Registre aparelhos, clientes, pagamentos,
+                peças e informações técnicas no sistema.
+              </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-all"
+            className="w-11 h-11 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center hover:bg-slate-800 transition-all"
+            type="button"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5 text-slate-400" />
           </button>
         </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Customer Information */}
-        <div className="bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-slate-800/50 dark:to-slate-800/30 p-5 rounded-xl border border-slate-200 dark:border-slate-700 space-y-4">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-8 h-8 bg-emerald-500/10 dark:bg-emerald-500/20 rounded-lg flex items-center justify-center">
-              <User className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+
+        {/* CLIENTE */}
+        <section className="bg-slate-900/20 border border-slate-800 rounded-xl p-5">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+              <User className="w-5 h-5 text-emerald-400" />
             </div>
-            <h3 className="font-semibold text-slate-900 dark:text-white">Informações do Cliente</h3>
+            <div>
+              <h3 className="text-sm font-semibold tracking-wide text-slate-50">
+                Cliente
+              </h3>
+              <p className="text-xs text-slate-500">
+                Informações básicas do cliente.
+              </p>
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+              <label className="text-[11px] font-bold text-slate-500 mb-2 block">
                 Nome do Cliente *
               </label>
               <input
@@ -139,43 +250,51 @@ const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
                 value={formData.customer}
                 onChange={handleChange}
                 placeholder="Ex: João Silva"
-                required
-                className="w-full px-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:focus:ring-emerald-400"
+                className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-slate-50 outline-none focus:border-blue-500 transition-all"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+              <label className="text-[11px] font-bold text-slate-500 mb-2 block">
                 Telefone *
               </label>
               <div className="relative">
-                <Phone className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+                <Phone
+                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600"
+                  size={15}
+                />
                 <input
-                  type="tel"
+                  type="text"
                   name="phone"
                   value={formData.phone}
                   onChange={handleChange}
-                  placeholder="(11) 98765-4321"
-                  required
-                  className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:focus:ring-emerald-400"
+                  placeholder="(31) 99999-9999"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-11 pr-4 py-3 text-sm text-slate-50 outline-none focus:border-blue-500 transition-all"
                 />
               </div>
             </div>
           </div>
-        </div>
+        </section>
 
-        {/* Device Information */}
-        <div className="bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-slate-800/50 dark:to-slate-800/30 p-5 rounded-xl border border-slate-200 dark:border-slate-700 space-y-4">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-8 h-8 bg-blue-500/10 dark:bg-blue-500/20 rounded-lg flex items-center justify-center">
-              <Smartphone className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+        {/* APARELHO */}
+        <section className="bg-slate-900/20 border border-slate-800 rounded-xl p-5">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-11 h-11 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+              <Smartphone className="w-5 h-5 text-blue-400" />
             </div>
-            <h3 className="font-semibold text-slate-900 dark:text-white">Informações do Aparelho</h3>
+            <div>
+              <h3 className="text-sm font-semibold tracking-wide text-slate-50">
+                Aparelho
+              </h3>
+              <p className="text-xs text-slate-500">
+                Dados do dispositivo recebido.
+              </p>
+            </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+              <label className="text-[11px] font-bold text-slate-500 mb-2 block">
                 Aparelho *
               </label>
               <input
@@ -183,31 +302,32 @@ const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
                 name="device"
                 value={formData.device}
                 onChange={handleChange}
-                placeholder="Ex: iPhone 13 Pro"
-                required
-                className="w-full px-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:focus:ring-emerald-400"
+                placeholder="Ex: iPhone 14"
+                className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-slate-50 outline-none focus:border-blue-500 transition-all"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+              <label className="text-[11px] font-bold text-slate-500 mb-2 block">
                 Marca
               </label>
               <select
                 name="brand"
                 value={formData.brand}
                 onChange={handleChange}
-                className="w-full px-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:focus:ring-emerald-400"
+                className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-slate-50 outline-none focus:border-blue-500 transition-all"
               >
-                <option value="">Selecione...</option>
-                {brands.map(brand => (
-                  <option key={brand} value={brand}>{brand}</option>
+                <option value="">Selecionar</option>
+                {brands.map((brand) => (
+                  <option key={brand} value={brand}>
+                    {brand}
+                  </option>
                 ))}
               </select>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+              <label className="text-[11px] font-bold text-slate-500 mb-2 block">
                 Modelo
               </label>
               <input
@@ -215,179 +335,227 @@ const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
                 name="model"
                 value={formData.model}
                 onChange={handleChange}
-                placeholder="Ex: A53 5G"
-                className="w-full px-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:focus:ring-emerald-400"
+                placeholder="Ex: A54 5G"
+                className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-slate-50 outline-none focus:border-blue-500 transition-all"
               />
             </div>
           </div>
-        </div>
+        </section>
 
-        {/* Issue Description */}
-        <div className="bg-gradient-to-br from-amber-50 to-amber-100/50 dark:from-amber-900/10 dark:to-amber-900/5 p-5 rounded-xl border border-amber-200 dark:border-amber-800/30">
-          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-            Problema Reportado *
-          </label>
+        {/* PROBLEMA */}
+        <section className="bg-amber-500/5 border border-amber-500/10 rounded-xl p-5">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-11 h-11 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+              <AlertCircle className="w-5 h-5 text-amber-400" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold tracking-wide text-slate-50">
+                Problema Reportado
+              </h3>
+              <p className="text-xs text-slate-500">
+                Descrição técnica do defeito.
+              </p>
+            </div>
+          </div>
           <textarea
             name="issue"
             value={formData.issue}
             onChange={handleChange}
+            rows={4}
             placeholder="Descreva o problema detalhadamente..."
-            required
-            rows={3}
-            className="w-full px-4 py-3 bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800/30 rounded-lg text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 dark:focus:ring-amber-400 resize-none"
+            className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-4 text-sm text-slate-50 outline-none resize-none focus:border-amber-500 transition-all"
           />
-        </div>
+        </section>
 
-        {/* Service Details */}
-        <div className="bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-900/10 dark:to-purple-900/5 p-5 rounded-xl border border-purple-200 dark:border-purple-800/30">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-8 h-8 bg-purple-500/10 dark:bg-purple-500/20 rounded-lg flex items-center justify-center">
-              <CreditCard className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+        {/* SERVIÇO */}
+        <section className="bg-slate-900/20 border border-slate-800 rounded-xl p-5">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-11 h-11 rounded-2xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
+              <BadgeDollarSign className="w-5 h-5 text-purple-400" />
             </div>
-            <h3 className="font-semibold text-slate-900 dark:text-white">Detalhes do Serviço</h3>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+              <h3 className="text-sm font-semibold tracking-wide text-slate-50">
+                Serviço & Pagamento
+              </h3>
+              <p className="text-xs text-slate-500">
+                Controle financeiro e andamento.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+            <div>
+              <label className="text-[11px] font-bold text-slate-500 mb-2 block">
                 Status
               </label>
               <select
                 name="status"
                 value={formData.status}
                 onChange={handleChange}
-                className="w-full px-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:focus:ring-emerald-400"
+                className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-slate-50 outline-none focus:border-purple-500 transition-all"
               >
-                {statusOptions.map(option => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
+                {statusOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
                 ))}
               </select>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-2">
-                <DollarSign className="w-4 h-4 text-emerald-500" />
+              <label className="text-[11px] font-bold text-slate-500 mb-2 block">
                 Valor do Serviço
               </label>
-              <input
-                type="number"
-                name="value"
-                value={formData.value}
-                onChange={handleChange}
-                placeholder="0.00"
-                step="0.01"
-                min="0"
-                className="w-full px-4 py-2 bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-800/30 rounded-lg text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-400"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Parts and Delivery */}
-        <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-900/10 dark:to-blue-900/5 p-5 rounded-xl border border-blue-200 dark:border-blue-800/30">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-8 h-8 bg-blue-500/10 dark:bg-blue-500/20 rounded-lg flex items-center justify-center">
-              <Package className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-            </div>
-            <h3 className="font-semibold text-slate-900 dark:text-white">Peças e Prazos</h3>
-          </div>
-          <div className="grid grid-cols-2 gap-4 mb-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                Data do Pedido da Peça
-              </label>
               <div className="relative">
-                <Calendar className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
-                <input
-                  type="date"
-                  name="orderDate"
-                  value={formData.orderDate}
-                  onChange={handleChange}
-                  className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800/30 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
+                <DollarSign
+                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600"
+                  size={15}
                 />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                Previsão de Entrega
-              </label>
-              <div className="relative">
-                <Calendar className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
                 <input
-                  type="date"
-                  name="deliveryDate"
-                  value={formData.deliveryDate}
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  name="value"
+                  value={formData.value}
                   onChange={handleChange}
-                  className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800/30 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
+                  placeholder="0.00"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-11 pr-4 py-3 text-sm text-slate-50 outline-none focus:border-purple-500 transition-all"
                 />
               </div>
             </div>
           </div>
 
-          {/* Checkboxes */}
-          <div className="flex gap-6 pt-2">
-            <label className="flex items-center gap-2 cursor-pointer bg-white dark:bg-slate-900/50 px-4 py-2 rounded-lg border border-blue-200 dark:border-blue-800/30 hover:border-blue-300 dark:hover:border-blue-700/50 transition-all">
-              <input
-                type="checkbox"
-                name="partOrdered"
-                checked={formData.partOrdered}
-                onChange={handleChange}
-                className="w-4 h-4 text-blue-500 bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 rounded focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-              />
-              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Peça já foi pedida</span>
-            </label>
-
-            <label className="flex items-center gap-2 cursor-pointer bg-white dark:bg-slate-900/50 px-4 py-2 rounded-lg border border-blue-200 dark:border-blue-800/30 hover:border-blue-300 dark:hover:border-blue-700/50 transition-all">
+          <div className="flex flex-wrap gap-3">
+            <label className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-slate-950 border border-slate-800 cursor-pointer hover:border-emerald-500/20 transition-all">
               <input
                 type="checkbox"
                 name="paid"
                 checked={formData.paid}
                 onChange={handleChange}
-                className="w-4 h-4 text-emerald-500 bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 rounded focus:ring-2 focus:ring-emerald-500 dark:focus:ring-emerald-400"
+                className="accent-emerald-500"
               />
-              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Pagamento recebido</span>
+              <span className="text-xs font-semibold text-slate-300">
+                Pagamento Recebido
+              </span>
+            </label>
+
+            <label className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-slate-950 border border-slate-800 cursor-pointer hover:border-blue-500/20 transition-all">
+              <input
+                type="checkbox"
+                name="partOrdered"
+                checked={formData.partOrdered}
+                onChange={handleChange}
+                className="accent-blue-500"
+              />
+              <span className="text-xs font-semibold text-slate-300">
+                Peça já foi pedida
+              </span>
             </label>
           </div>
-        </div>
+        </section>
 
-        {/* Notes */}
-        <div>
-          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-2">
-            <FileText className="w-4 h-4 text-emerald-500" />
-            Observações
-          </label>
+        {/* PRAZOS */}
+        <section className="bg-slate-900/20 border border-slate-800 rounded-xl p-5">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-11 h-11 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center">
+              <Calendar className="w-5 h-5 text-cyan-400" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold tracking-wide text-slate-50">
+                Datas & Entrega
+              </h3>
+              <p className="text-xs text-slate-500">
+                Controle de peças e previsões.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="text-[11px] font-bold text-slate-500 mb-2 block">
+                Data do Pedido
+              </label>
+              <input
+                type="date"
+                name="orderDate"
+                value={formData.orderDate}
+                onChange={handleChange}
+                className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-slate-50 outline-none focus:border-cyan-500 transition-all"
+              />
+            </div>
+
+            <div>
+              <label className="text-[11px] font-bold text-slate-500 mb-2 block">
+                Previsão de Entrega
+              </label>
+              <input
+                type="date"
+                name="deliveryDate"
+                value={formData.deliveryDate}
+                onChange={handleChange}
+                className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-slate-50 outline-none focus:border-cyan-500 transition-all"
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* OBSERVAÇÕES */}
+        <section className="bg-slate-900/20 border border-slate-800 rounded-xl p-5">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-11 h-11 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center">
+              <ClipboardList className="w-5 h-5 text-slate-300" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold tracking-wide text-slate-50">
+                Observações
+              </h3>
+              <p className="text-xs text-slate-500">
+                Informações extras e anotações internas.
+              </p>
+            </div>
+          </div>
           <textarea
             name="notes"
             value={formData.notes}
             onChange={handleChange}
-            placeholder="Anotações adicionais sobre o serviço..."
-            rows={2}
-            className="w-full px-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:focus:ring-emerald-400 resize-none"
+            rows={3}
+            placeholder="Digite observações adicionais..."
+            className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-4 text-sm text-slate-50 outline-none resize-none focus:border-slate-600 transition-all"
           />
-        </div>
+        </section>
 
-        {/* Actions */}
-        <div className="flex gap-3 pt-6 border-t border-slate-200 dark:border-slate-700">
+        {/* ACTIONS */}
+        <div className="sticky bottom-0 bg-slate-950/80 backdrop-blur-xl border border-slate-800 rounded-xl p-4 flex flex-col md:flex-row gap-3">
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 px-6 py-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg font-medium transition-all"
-            disabled={loading} // Desabilita durante o carregamento
+            disabled={loading}
+            className="flex-1 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-sm font-bold transition-all"
           >
             Cancelar
           </button>
+
           <button
             type="submit"
-            className="flex-1 px-6 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white rounded-lg font-semibold transition-all shadow-lg shadow-emerald-500/30 hover:shadow-emerald-500/40 hover:scale-[1.02] disabled:opacity-50 disabled:shadow-none"
-            disabled={loading} // Desabilita durante o carregamento
+            disabled={loading}
+            className="flex-1 py-3 rounded-2xl bg-primary hover:bg-primary-hover text-white text-sm font-semibold transition-all shadow-lg flex items-center justify-center gap-2"
           >
-            {loading ? "Salvando..." : "Adicionar Manutenção"}
+            {loading ? (
+              <>
+                <Loader size={16} className="animate-spin" />
+                Salvando...
+              </                >
+            ) : (
+              <>
+                <Sparkles size={16} />
+                Adicionar & Imprimir OS
+              </>
+            )}
           </button>
         </div>
       </form>
     </Modal>
-  )
-}
+  );
+};
 
-export default AddMaintenanceModal
+export default AddMaintenanceModal;

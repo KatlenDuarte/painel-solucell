@@ -1,18 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Modal from "./Modal";
-import {
-  Package,
-  Plus,
-  Minus,
-  AlertTriangle,
-  Save,
-  X,
-  DollarSign,
-  Boxes,
-  Pencil,
-  Truck,
-  ShieldAlert,
-} from "lucide-react";
+import { Package, Plus, Minus, AlertTriangle, BellRing, Scan, RefreshCw, Printer } from "lucide-react";
+import JsBarcode from "jsbarcode";
 
 interface Product {
   id: string;
@@ -22,7 +11,8 @@ interface Product {
   stock: number;
   minStock: number;
   price: number;
-  provider?: string | null;
+  costPrice?: number | null;
+  barcode?: string | null;
 }
 
 interface EditStockModalProps {
@@ -36,7 +26,8 @@ interface EditStockModalProps {
     newName: string,
     newPrice: number,
     newMinStock: number,
-    newProvider: string | null
+    newCostPrice: number | null,
+    newBarcode: string | null
   ) => void;
 }
 
@@ -52,25 +43,32 @@ export default function EditStockModal({
 
   const [newName, setNewName] = useState<string>("");
   const [newPrice, setNewPrice] = useState<string>("0");
-  const [newMinStock, setNewMinStock] = useState<string>("0");
-  const [newProvider, setNewProvider] = useState<string>("");
+  const [newMinStock, setNewMinStock] = useState<string>("0"); 
+  const [newCostPrice, setNewCostPrice] = useState<string>("0");
+  const [newBarcode, setNewBarcode] = useState<string>(""); 
+  const [printQuantity, setPrintQuantity] = useState<string>("1");
 
+  const hiddenSvgRef = useRef<SVGSVGElement>(null);
+
+  // 🌟 CORREÇÃO CRUCIAL: Inicializa os dados do formulário APENAS quando o produto muda de ID
   useEffect(() => {
     if (!product) return;
 
-    setNewName(product.name || "");
-    setNewPrice(String(product.price || 0));
-    setNewMinStock(String(product.minStock || 0));
-    setNewProvider(product.provider || "");
+    setNewName(product.name);
+    setNewPrice(String(product.price));
+    setNewMinStock(String(product.minStock)); 
+    setNewCostPrice(product.costPrice ? String(product.costPrice) : "0");
+    setNewBarcode(product.barcode || ""); 
+    setPrintQuantity(String(product.stock > 0 ? product.stock : 1));
     setQuantity("0");
     setOperation("add");
-    setNewStock(product.stock || 0);
-  }, [product]);
+  }, [product?.id]); // Usando apenas o ID impede que o React resete seus campos digitados/gerados
 
+  // Re-calcula o estoque futuro de forma isolada sem resetar os inputs de texto
   useEffect(() => {
     if (!product) return;
 
-    const q = Number(quantity || 0);
+    const q = Number(quantity);
     let result = product.stock;
 
     if (operation === "add") result = product.stock + q;
@@ -80,427 +78,337 @@ export default function EditStockModal({
     if (result < 0) result = 0;
 
     setNewStock(result);
-  }, [quantity, operation, product]);
+  }, [quantity, operation, product?.stock]);
 
   if (!product) return null;
 
-  const minStockNumber = Number(newMinStock || 0);
-  const isLowStock = newStock > 0 && newStock < minStockNumber;
+  const currentMinLimit = Number(newMinStock);
+  const isLowStock = newStock > 0 && newStock <= currentMinLimit;
   const isCritical = newStock === 0;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // ✅ GERAR CÓDIGO DE BARRAS ALEATÓRIO (Agora segura o valor no estado)
+  const handleGenerateRandomBarcode = () => {
+    const randomCode = Math.floor(1000000000000 + Math.random() * 9000000000000).toString();
+    setNewBarcode(randomCode);
+  };
+
+  // ✅ IMPRIMIR AS ETIQUETAS COM QUANTIDADE PERSONALIZADA
+  const handlePrintLabels = () => {
+    if (!newBarcode) {
+      alert("Por favor, digite ou gere um código de barras antes de imprimir.");
+      return;
+    }
+
+    if (hiddenSvgRef.current) {
+      const format = newBarcode.length === 13 ? "EAN13" : "CODE128";
+      try {
+        JsBarcode(hiddenSvgRef.current, newBarcode, {
+          format: format,
+          width: 2,
+          height: 50,
+          displayValue: true,
+          fontSize: 16,
+          lineColor: "#000"
+        });
+      } catch (e) {
+        JsBarcode(hiddenSvgRef.current, newBarcode, {
+          format: "CODE128",
+          width: 2,
+          height: 50,
+          displayValue: true,
+          fontSize: 16,
+          lineColor: "#000"
+        });
+      }
+    }
+
+    const svgString = new XMLSerializer().serializeToString(hiddenSvgRef.current!);
+    const svgBase64 = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgString)));
+    
+    const totalLabels = Number(printQuantity) || 1;
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      alert("Bloqueador de pop-ups ativo! Permita pop-ups para conseguir imprimir.");
+      return;
+    }
+
+    const labelsHtmlArray = Array.from({ length: totalLabels }).map(() => `
+      <div class="card">
+        <div class="title">${newName || "Produto Sem Nome"}</div>
+        <img class="barcode-img" src="${svgBase64}" />
+        <div class="price">${newPrice ? `R$ ${Number(newPrice).toFixed(2)}` : ""}</div>
+      </div>
+    `).join('');
+
+    const labelHTML = `
+      <html>
+        <head>
+          <title>Imprimir Etiqueta - ${newName}</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 10px; padding: 0; background: #fff; }
+            .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 15px; }
+            .card { border: 1px dashed #bbb; padding: 10px; text-align: center; page-break-inside: avoid; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #fff; }
+            .title { font-size: 11px; font-weight: bold; margin-bottom: 2px; text-transform: uppercase; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #000; }
+            .price { font-size: 13px; font-weight: bold; margin-top: 2px; color: #000; }
+            .barcode-img { max-width: 160px; height: auto; display: block; margin: 4px 0; }
+          </style>
+        </head>
+        <body>
+          <div class="grid">
+            ${labelsHtmlArray}
+          </div>
+          <script>
+            window.onload = function() {
+              setTimeout(function() {
+                window.print();
+              }, 200);
+            };
+          </script>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(labelHTML);
+    printWindow.document.close();
+  };
+
+const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    const q = Number(quantity || 0);
-    const updatedPrice = Number(newPrice || 0);
-    const updatedMinStock = Number(newMinStock || 0);
-    const providerValue = newProvider.trim() || null;
-
-    if (!newName.trim()) {
-      alert("Informe o nome do produto.");
-      return;
-    }
-
-    if (updatedPrice < 0) {
-      alert("O preço não pode ser negativo.");
-      return;
-    }
-
-    if (updatedMinStock < 0) {
-      alert("A quantidade mínima não pode ser negativa.");
-      return;
-    }
+    const q = Number(quantity);
+    const updatedPrice = Number(newPrice);
+    const updatedMinStock = Number(newMinStock); 
+    const updatedCostPrice = newCostPrice !== "" ? Number(newCostPrice) : null;
+    
+    // 🌟 CORREÇÃO AQUI: Não force "|| null" se o input tiver texto. 
+    // Garanta que envie a string limpa. Se estiver vazia, envia "" ou null de forma explícita.
+    const updatedBarcode = newBarcode.trim() !== "" ? newBarcode.trim() : null; 
 
     if (operation === "remove" && q > product.stock) {
       alert("Você não pode remover mais do que o estoque atual!");
       return;
     }
 
+    // Certifique-se de que todos esses parâmetros batem com a ordem esperada no Componente Pai
     onSubmit(
-      product.id,
-      newStock,
-      operation,
-      newName.trim(),
-      updatedPrice,
-      updatedMinStock,
-      providerValue
+      product.id, 
+      newStock, 
+      operation, 
+      newName, 
+      updatedPrice, 
+      updatedMinStock, 
+      updatedCostPrice, 
+      updatedBarcode // 🏷️ O código de barras editado/gerado vai aqui
     );
-
+    
     onClose();
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Editar" size="xl">
-      <form
-        onSubmit={handleSubmit}
-        className="bg-[#020617] text-slate-200 p-4 sm:p-5 space-y-4"
-      >
-        <div className="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-4">
-          <div className="flex items-start gap-3">
+    <Modal isOpen={isOpen} onClose={onClose} title="Editar Produto & Estoque" size="md">
+      <form onSubmit={handleSubmit} className="p-6 space-y-6">
+        
+        <div style={{ display: "none" }}>
+          <svg ref={hiddenSvgRef}></svg>
+        </div>
 
-            <div className="min-w-0 flex-1">
-              <p className="text-[10px] uppercase font-black tracking-wider text-slate-500">
-                Produto selecionado
-              </p>
-
-              <h3 className="text-white font-black text-sm sm:text-base leading-tight truncate mt-0.5">
-                {newName || product.name}
-              </h3>
-
-              <p className="text-slate-500 text-xs mt-1 truncate">
-                {product.brand} • {product.model}
-              </p>
-
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
-                <MiniStat
-                  icon={<Boxes size={15} />}
-                  label="Estoque atual"
-                  value={`${product.stock} un`}
-                  color="blue"
-                />
-
-                <MiniStat
-                  icon={<ShieldAlert size={15} />}
-                  label="Mínimo atual"
-                  value={`${product.minStock} un`}
-                  color="amber"
-                />
-
-                <MiniStat
-                  icon={<DollarSign size={15} />}
-                  label="Preço atual"
-                  value={`R$ ${Number(product.price || 0).toFixed(2)}`}
-                  color="emerald"
-                />
-
-                <MiniStat
-                  icon={<Truck size={15} />}
-                  label="Fornecedor"
-                  value={product.provider || "Não informado"}
-                  color="slate"
-                />
+        {/* INFO DO PRODUTO */}
+        <div className="bg-slate-800 border border-slate-700 rounded-xl p-4">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-lg flex items-center justify-center flex-shrink-0">
+              <Package className="w-6 h-6 text-white" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-slate-50 font-semibold text-lg">{newName}</h3>
+              <p className="text-slate-400 text-sm">{product.brand} - {product.model}</p>
+              
+              <div className="mt-2 flex items-center gap-6">
+                <div>
+                  <p className="text-slate-500 text-xs">Estoque Atual</p>
+                  <p className="text-slate-50 font-bold text-xl">{product.stock}</p>
+                </div>
+                <div>
+                  <p className="text-slate-500 text-xs">Mínimo Atual</p>
+                  <p className="text-amber-500 font-bold text-xl">{product.minStock}</p>
+                </div>
+                <div>
+                  <p className="text-slate-500 text-xs">Preço Unitário</p>
+                  <p className="text-emerald-400 font-bold text-xl">R$ {Number(newPrice).toFixed(2)}</p>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        <section className="bg-slate-900/50 border border-slate-800/80 rounded-2xl p-4 space-y-4">
-          <SectionTitle
-            icon={<Pencil size={15} />}
-            title="Detalhes do Produto"
-            description="Edite nome, preço, estoque mínimo e fornecedor."
-          />
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            <InputField
-              label="Nome do Produto"
+        {/* CAMPOS DE EDIÇÃO DE DETALHES */}
+        <div className="space-y-4 pt-2 pb-4 border-b border-slate-800">
+          <h4 className="text-sm font-bold text-slate-500">Configurações do Produto</h4>
+          
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">Nome do Produto</label>
+            <input
+              type="text"
+              required
               value={newName}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setNewName(e.target.value)
-              }
-              required
-            />
-
-            <InputField
-              label="Fornecedor"
-              value={newProvider}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setNewProvider(e.target.value)
-              }
-              placeholder="Ex: Distribuidora BH, Shopee..."
+              onChange={(e) => setNewName(e.target.value)}
+              className="w-full px-4 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-50 focus:border-blue-500 outline-none transition-all"
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <InputField
-              label="Preço Unitário"
-              type="number"
-              min="0"
-              step="0.01"
-              value={newPrice}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setNewPrice(e.target.value)
-              }
-              required
-            />
-
-            <InputField
-              label="Estoque Mínimo"
-              type="number"
-              min="0"
-              value={newMinStock}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setNewMinStock(e.target.value)
-              }
-              required
-            />
-          </div>
-        </section>
-
-        <section className="bg-slate-900/50 border border-slate-800/80 rounded-2xl p-4 space-y-4">
-          <SectionTitle
-            title="Movimentação de Estoque"
-            description="Escolha se deseja adicionar, remover ou definir o estoque total."
-          />
-
-          <div className="grid grid-cols-3 gap-2 sm:gap-3">
-            <OperationButton
-              active={operation === "add"}
-              color="emerald"
-              icon={<Plus size={18} />}
-              label="Adicionar"
-              onClick={() => setOperation("add")}
-            />
-
-            <OperationButton
-              active={operation === "remove"}
-              color="red"
-              icon={<Minus size={18} />}
-              label="Remover"
-              onClick={() => setOperation("remove")}
-            />
-
-            <OperationButton
-              active={operation === "set"}
-              color="blue"
-              icon={<Package size={18} />}
-              label="Definir"
-              onClick={() => setOperation("set")}
-            />
-          </div>
-
-          <InputField
-            label={
-              operation === "set"
-                ? "Nova quantidade total"
-                : "Quantidade de movimentação"
-            }
-            type="number"
-            min="0"
-            value={quantity}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setQuantity(e.target.value)
-            }
-            required
-            center
-            large
-            placeholder="0"
-          />
-        </section>
-
-        <div
-          className={`rounded-2xl border p-4 ${
-            isCritical
-              ? "bg-red-500/10 border-red-500/30"
-              : isLowStock
-              ? "bg-amber-500/10 border-amber-500/30"
-              : "bg-emerald-500/10 border-emerald-500/30"
-          }`}
-        >
-          <div className="flex items-center justify-between gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
-                Novo estoque
-              </p>
-
-              <p
-                className={`text-3xl sm:text-4xl font-black ${
-                  isCritical
-                    ? "text-red-400"
-                    : isLowStock
-                    ? "text-amber-400"
-                    : "text-emerald-400"
-                }`}
-              >
-                {newStock}
-              </p>
+              <label className="block text-sm font-medium text-slate-300 mb-2">Custo (R$)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={newCostPrice}
+                onChange={(e) => setNewCostPrice(e.target.value)}
+                className="w-full px-4 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-50 focus:border-blue-500 outline-none transition-all"
+                placeholder="0.00"
+              />
             </div>
 
-            <div className="text-right">
-              <p className="text-[11px] text-slate-500">Novo mínimo</p>
-              <p className="text-white font-black">{minStockNumber} un</p>
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">Preço (R$)</label>
+              <input
+                type="number"
+                required
+                min="0"
+                step="0.01"
+                value={newPrice}
+                onChange={(e) => setNewPrice(e.target.value)}
+                className="w-full px-4 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-50 focus:border-blue-500 outline-none transition-all"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2 flex items-center gap-2">
+                <BellRing size={14} className="text-amber-400" /> Estoque Mínimo
+              </label>
+              <input
+                type="number"
+                required
+                min="0"
+                value={newMinStock}
+                onChange={(e) => setNewMinStock(e.target.value)}
+                className="w-full px-4 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-50 focus:border-amber-500 outline-none transition-all"
+                placeholder="Ex: 5"
+              />
             </div>
           </div>
 
-          {(isLowStock || isCritical) && (
-            <div className="flex items-start gap-2 mt-4 pt-4 border-t border-slate-800/80">
-              <AlertTriangle
-                className={`w-5 h-5 shrink-0 ${
-                  isCritical ? "text-red-400" : "text-amber-400"
-                }`}
-              />
-
-              <p
-                className={`text-xs sm:text-sm ${
-                  isCritical ? "text-red-300" : "text-amber-300"
-                }`}
+          {/* SECTOR CÓDIGO DE BARRAS */}
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">Código de Barras</label>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Scan className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  value={newBarcode}
+                  onChange={(e) => setNewBarcode(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-50 placeholder-slate-500 focus:border-blue-500 outline-none transition-all"
+                  placeholder="Bipe, digite ou gere um código..."
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleGenerateRandomBarcode}
+                className="px-3 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg flex items-center gap-1 transition-colors border border-slate-600 text-xs"
+                title="Gerar código aleatório"
               >
-                {isCritical
-                  ? "Estoque zerado. Produto indisponível para venda."
-                  : `Estoque abaixo do mínimo recomendado de ${minStockNumber} unidades.`}
-              </p>
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Gerar</span>
+              </button>
+            </div>
+          </div>
+
+          {/* IMPRESSÃO DIRETA DE ETIQUETAS */}
+          {newBarcode && (
+            <div className="bg-slate-900/50 border border-dashed border-slate-700 rounded-lg p-3 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <label className="text-xs font-medium text-slate-400 whitespace-nowrap">Qtd. Cópias:</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={printQuantity}
+                  onChange={(e) => setPrintQuantity(e.target.value)}
+                  className="w-16 px-2 py-1 bg-slate-950 border border-slate-700 rounded text-center text-slate-50 font-bold text-sm outline-none focus:border-blue-500"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handlePrintLabels}
+                className="w-full sm:w-auto px-4 py-1.5 bg-primary hover:bg-primary-hover text-white rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-bold"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Imprimir Etiquetas</span>
+              </button>
             </div>
           )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex items-center justify-center gap-2 px-5 py-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 rounded-xl transition-all font-black text-xs uppercase"
-          >
-            <X size={16} />
+        {/* MOVIMENTAÇÃO DE ESTOQUE */}
+        <div className="space-y-4">
+          <label className="block text-sm font-medium text-slate-300">Movimentação de Estoque</label>
+          <div className="grid grid-cols-3 gap-3">
+             <button type="button" onClick={() => setOperation("add")} className={`p-3 rounded-xl border-2 transition-all ${operation === "add" ? "border-emerald-500 bg-emerald-500/10 text-emerald-400" : "border-slate-700 bg-slate-800 text-slate-400"}`}>
+               <Plus className="w-5 h-5 mx-auto mb-1" />
+               <span className="text-xs font-bold">Adicionar</span>
+             </button>
+             <button type="button" onClick={() => setOperation("remove")} className={`p-3 rounded-xl border-2 transition-all ${operation === "remove" ? "border-red-500 bg-red-500/10 text-red-400" : "border-slate-700 bg-slate-800 text-slate-400"}`}>
+               <Minus className="w-5 h-5 mx-auto mb-1" />
+               <span className="text-xs font-bold">Remover</span>
+             </button>
+             <button type="button" onClick={() => setOperation("set")} className={`p-3 rounded-xl border-2 transition-all ${operation === "set" ? "border-blue-500 bg-blue-500/10 text-blue-400" : "border-slate-700 bg-slate-800 text-slate-400"}`}>
+               <Package className="w-5 h-5 mx-auto mb-1" />
+               <span className="text-xs font-bold">Definir</span>
+             </button>
+          </div>
+
+          <input
+            type="number"
+            required
+            min="0"
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+            className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-slate-50 text-center text-2xl font-bold focus:border-emerald-500 outline-none transition-all"
+          />
+        </div>
+
+        {/* PREVIEW DO NOVO STATUS */}
+        {quantity && (
+          <div className={`p-4 rounded-xl border-2 ${isCritical ? "bg-red-500/10 border-red-500/30" : isLowStock ? "bg-amber-500/10 border-amber-500/30" : "bg-emerald-500/10 border-emerald-500/30"}`}>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-300 font-medium">Estoque após salvar:</span>
+              <span className={`font-bold text-3xl ${isCritical ? "text-red-400" : isLowStock ? "text-amber-400" : "text-emerald-400"}`}>
+                {newStock}
+              </span>
+            </div>
+
+            {(isLowStock || isCritical) && (
+              <div className="flex items-start gap-2 mt-3 pt-3 border-t border-slate-700">
+                <AlertTriangle className={`w-5 h-5 flex-shrink-0 ${isCritical ? "text-red-400" : "text-amber-400"}`} />
+                <p className={`text-sm ${isCritical ? "text-red-300" : "text-amber-300"}`}>
+                  {isCritical ? "⚠️ Estoque zerado!" : `⚠️ Estoque ficará abaixo do mínimo (${newMinStock} un)`}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* BOTÕES */}
+        <div className="flex items-center gap-4 pt-4 border-t border-slate-800">
+          <button type="button" onClick={onClose} className="flex-1 px-6 py-3 bg-slate-800 hover:bg-slate-700 text-slate-50 rounded-lg transition-all font-medium">
             Cancelar
           </button>
-
-          <button
-            type="submit"
-            className="flex items-center justify-center gap-2 px-5 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl transition-all font-black text-xs uppercase shadow-lg shadow-emerald-500/10"
-          >
-            <Save size={16} />
-            Salvar Alteração
+          <button type="submit" className="flex-1 px-6 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white rounded-lg transition-all font-medium shadow-lg">
+            Salvar Alterações
           </button>
         </div>
       </form>
     </Modal>
-  );
-}
-
-function SectionTitle({
-  icon,
-  title,
-  description,
-}: {
-  icon?: React.ReactNode;
-  title: string;
-  description?: string;
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      {icon && (
-        <div className="p-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-400">
-          {icon}
-        </div>
-      )}
-
-      <div>
-        <h4 className="text-sm font-black text-white">{title}</h4>
-        {description && (
-          <p className="text-[11px] text-slate-500 mt-0.5">{description}</p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function InputField({
-  label,
-  value,
-  onChange,
-  type = "text",
-  required = false,
-  min,
-  step,
-  placeholder,
-  center = false,
-  large = false,
-}: any) {
-  return (
-    <div>
-      <label className="block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-2">
-        {label} {required && "*"}
-      </label>
-
-      <input
-        type={type}
-        required={required}
-        min={min}
-        step={step}
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-        className={`w-full bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-3 text-white placeholder-slate-600 outline-none focus:border-emerald-500 transition-colors ${
-          center ? "text-center" : ""
-        } ${large ? "text-2xl sm:text-3xl font-black" : "text-sm"}`}
-      />
-    </div>
-  );
-}
-
-function MiniStat({
-  icon,
-  label,
-  value,
-  color,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  color: "blue" | "emerald" | "amber" | "slate";
-}) {
-  const colorClass =
-    color === "blue"
-      ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
-      : color === "emerald"
-      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-      : color === "amber"
-      ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
-      : "bg-slate-500/10 text-slate-400 border-slate-500/20";
-
-  return (
-    <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-3 min-w-0">
-      <div className="flex items-center gap-1.5 text-slate-500 mb-1">
-        <span className={`p-1 rounded-lg border ${colorClass}`}>
-          {icon}
-        </span>
-
-        <span className="text-[9px] uppercase font-black tracking-wider truncate">
-          {label}
-        </span>
-      </div>
-
-      <p className="text-white font-black text-sm truncate">{value}</p>
-    </div>
-  );
-}
-
-function OperationButton({
-  active,
-  color,
-  icon,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  color: "emerald" | "red" | "blue";
-  icon: React.ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
-  const activeClass =
-    color === "emerald"
-      ? "border-emerald-500 bg-emerald-500/10 text-emerald-400"
-      : color === "red"
-      ? "border-red-500 bg-red-500/10 text-red-400"
-      : "border-blue-500 bg-blue-500/10 text-blue-400";
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`p-3 sm:p-4 rounded-2xl border transition-all ${
-        active
-          ? activeClass
-          : "border-slate-800 bg-slate-950/70 text-slate-500 hover:bg-slate-800/60"
-      }`}
-    >
-      <div className="flex flex-col items-center justify-center gap-1.5">
-        {icon}
-
-        <span className="text-[10px] sm:text-xs font-black uppercase">
-          {label}
-        </span>
-      </div>
-    </button>
   );
 }

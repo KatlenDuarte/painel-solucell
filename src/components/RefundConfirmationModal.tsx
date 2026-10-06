@@ -1,215 +1,128 @@
 // src/components/RefundConfirmationModal.tsx
+// Estorno de venda: marca a venda como estornada e devolve os produtos ao estoque,
+// tudo na mesma transação (ou faz as duas coisas, ou nenhuma).
 
 import React, { useState } from "react";
-import {
-    Undo2,
-    X,
-    Loader2,
-    AlertTriangle,
-    PackageCheck,
-} from "lucide-react";
-
-import {
-    doc,
-    runTransaction,
-    increment,
-    serverTimestamp,
-} from "firebase/firestore";
-
+import { Undo2, X, PackagePlus, Loader2 } from "lucide-react";
+import { doc, runTransaction, serverTimestamp } from "../lib/firestore";
 import { db } from "../lib/firebase";
+
+interface RefundItem { id?: string; name: string; saleQty: number }
 
 interface RefundConfirmationModalProps {
     saleId: string | null;
+    /** Itens da venda, só para mostrar o que volta ao estoque. */
+    items?: RefundItem[];
     onClose: () => void;
     onRefundSuccess: (saleId: string) => void;
 }
 
-const RefundConfirmationModal: React.FC<RefundConfirmationModalProps> = ({
-    saleId,
-    onClose,
-    onRefundSuccess,
-}) => {
+/** Agrupa as quantidades por produto (itens avulsos e de manutenção não têm estoque). */
+function stockItems(items: unknown): Map<string, number> {
+    const map = new Map<string, number>();
+    if (!Array.isArray(items)) return map;
+    for (const raw of items) {
+        const it = raw as { id?: unknown; saleQty?: unknown; quantity?: unknown };
+        const id = it?.id ? String(it.id) : "";
+        if (!id || id.startsWith("avulso-")) continue;
+        const qty = Number(it.saleQty ?? it.quantity ?? 1) || 0;
+        if (qty > 0) map.set(id, (map.get(id) || 0) + qty);
+    }
+    return map;
+}
+
+const RefundConfirmationModal: React.FC<RefundConfirmationModalProps> = ({ saleId, items, onClose, onRefundSuccess }) => {
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
 
     if (!saleId) return null;
 
+    const returning = (items || []).filter(i => i.id && !i.id.startsWith("avulso-"));
+
+    const close = () => { if (!loading) { setError(""); onClose(); } };
+
     const handleConfirmRefund = async () => {
-        if (loading) return;
-
         setLoading(true);
-
-        const saleRef = doc(db, "sales", saleId);
-
+        setError("");
         try {
-            await runTransaction(db, async (transaction) => {
-                const saleSnap = await transaction.get(saleRef);
+            await runTransaction(db, async (tx) => {
+                const saleRef = doc(db, "sales", saleId);
+                const saleSnap = await tx.get(saleRef);
+                if (!saleSnap.exists()) throw new Error("Venda não encontrada.");
+                const sale = saleSnap.data();
+                if (sale.status === "refunded") throw new Error("Esta venda já foi estornada.");
+                if (sale.status === "cancelled") throw new Error("Esta venda está cancelada.");
 
-                if (!saleSnap.exists()) {
-                    throw new Error("Venda não encontrada.");
+                // 1) Lê todos os produtos antes de gravar (exigência das transações do Firestore)
+                const toRestore = stockItems(sale.items);
+                const products: { ref: ReturnType<typeof doc>; stock: number; qty: number }[] = [];
+                for (const [productId, qty] of toRestore) {
+                    const ref = doc(db, "products", productId);
+                    const snap = await tx.get(ref);
+                    if (!snap.exists()) continue; // produto excluído: não há estoque para devolver
+                    products.push({ ref, stock: Number(snap.data().stock) || 0, qty });
                 }
 
-                const saleData = saleSnap.data() as any;
-
-                if (saleData.status === "refunded") {
-                    throw new Error("Esta venda já foi reembolsada.");
-                }
-
-                if (saleData.status === "cancelled") {
-                    throw new Error("Esta venda já está cancelada.");
-                }
-
-                const items = Array.isArray(saleData.items)
-                    ? saleData.items
-                    : [];
-
-                for (const item of items) {
-                    const productId = item.id;
-
-                    const qty = Number(
-                        item.saleQty ||
-                            item.quantity ||
-                            item.qty ||
-                            0
-                    );
-
-                    const isNonCatalog = String(productId || "").startsWith(
-                        "non-catalog-"
-                    );
-
-                    if (!productId || isNonCatalog || qty <= 0) {
-                        continue;
-                    }
-
-                    const productRef = doc(db, "products", productId);
-
-                    transaction.update(productRef, {
-                        stock: increment(qty),
-                    });
-                }
-
-                transaction.update(saleRef, {
+                // 2) Devolve ao estoque e marca a venda como estornada
+                for (const p of products) tx.update(p.ref, { stock: p.stock + p.qty });
+                tx.update(saleRef, {
                     status: "refunded",
+                    previousStatus: sale.status ?? null,
                     refundedAt: serverTimestamp(),
-                    refundReason: "Reembolso manual",
+                    stockRestored: products.map(p => ({ id: p.ref.id, qty: p.qty })),
                 });
             });
 
             onRefundSuccess(saleId);
             onClose();
-        } catch (error: any) {
-            console.error("Erro ao processar reembolso:", error);
-
-            if (error?.code === "resource-exhausted") {
-                alert(
-                    "Cota do Firestore excedida. Aguarde renovar ou reduza as leituras abertas no sistema."
-                );
-            } else if (error?.code === "permission-denied") {
-                alert(
-                    "Permissão negada. Verifique as regras do Firebase para atualizar sales e products."
-                );
-            } else if (error?.code === "not-found") {
-                alert("Venda não encontrada.");
-            } else {
-                alert(error?.message || "Erro ao processar reembolso.");
-            }
+        } catch (e) {
+            console.error("Erro ao estornar venda:", e);
+            setError(e instanceof Error ? e.message : "Não foi possível estornar. Tente novamente.");
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-[#020617] border border-slate-800 rounded-2xl w-full max-w-sm shadow-2xl relative overflow-hidden">
-                <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-red-600 via-rose-500 to-orange-500" />
-
-                <button
-                    onClick={onClose}
-                    className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors p-1 rounded-lg hover:bg-slate-800"
-                    title="Fechar"
-                    disabled={loading}
-                >
-                    <X className="w-5 h-5" />
+        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 backdrop-blur-[2px] sm:items-center sm:p-4" onMouseDown={close}>
+            <div role="dialog" aria-modal="true" onMouseDown={e => e.stopPropagation()}
+                className="relative w-full overflow-hidden rounded-t-3xl border border-line bg-surface p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-2xl sm:max-w-sm sm:rounded-2xl">
+                <button onClick={close} disabled={loading} aria-label="Fechar"
+                    className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-xl text-fg-subtle hover:bg-hover hover:text-fg">
+                    <X className="h-5 w-5" />
                 </button>
 
-                <div className="p-6">
-                    <div className="flex items-start gap-3 mb-5">
-                        <div className="w-11 h-11 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center shrink-0">
-                            {loading ? (
-                                <Loader2 className="w-5 h-5 text-red-400 animate-spin" />
-                            ) : (
-                                <Undo2 className="w-5 h-5 text-red-400" />
-                            )}
-                        </div>
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-danger-soft text-danger">
+                    <Undo2 className="h-6 w-6" />
+                </div>
+                <h2 className="mt-4 text-lg font-semibold text-fg">Estornar venda?</h2>
+                <p className="mt-1 text-sm text-fg-subtle">A venda deixa de contar no faturamento e os produtos voltam para o estoque.</p>
 
-                        <div className="pr-8">
-                            <p className="text-[9px] uppercase tracking-[0.25em] text-red-400 font-black mb-1">
-                                Ação irreversível
-                            </p>
-
-                            <h2 className="text-lg font-black text-white">
-                                Confirmar reembolso
-                            </h2>
-
-                            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                                A venda será marcada como reembolsada e os
-                                produtos cadastrados voltarão para o estoque.
-                            </p>
-                        </div>
+                {returning.length > 0 && (
+                    <div className="mt-4 rounded-xl border border-line bg-subtle p-3">
+                        <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-fg-subtle"><PackagePlus size={14} /> Volta para o estoque</p>
+                        <ul className="space-y-1 text-sm">
+                            {returning.map((i, n) => (
+                                <li key={`${i.id}-${n}`} className="flex justify-between gap-3">
+                                    <span className="truncate text-fg-muted">{i.name}</span>
+                                    <span className="shrink-0 font-medium text-fg tabular">+{i.saleQty}</span>
+                                </li>
+                            ))}
+                        </ul>
                     </div>
+                )}
 
-                    <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 mb-4">
-                        <div className="flex items-center gap-2 mb-2">
-                            <PackageCheck className="w-4 h-4 text-slate-400" />
+                {error && <p role="alert" className="mt-4 rounded-xl bg-danger-soft px-3 py-2.5 text-sm text-danger">{error}</p>}
 
-                            <p className="text-[10px] uppercase font-black tracking-wider text-slate-400">
-                                Venda selecionada
-                            </p>
-                        </div>
-
-                        <p className="text-xs text-slate-500 break-all">
-                            ID:{" "}
-                            <span className="text-slate-300 font-bold">
-                                {saleId}
-                            </span>
-                        </p>
-                    </div>
-
-                    <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 mb-5 flex gap-2">
-                        <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-
-                        <p className="text-[11px] text-red-200 leading-relaxed">
-                            Itens avulsos não alteram estoque. Apenas produtos
-                            cadastrados terão a quantidade restaurada.
-                        </p>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                        <button
-                            onClick={onClose}
-                            className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 rounded-xl transition-colors font-bold text-xs disabled:opacity-50"
-                            disabled={loading}
-                        >
-                            Cancelar
-                        </button>
-
-                        <button
-                            onClick={handleConfirmRefund}
-                            className="px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl font-black transition-colors text-xs disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                            disabled={loading}
-                        >
-                            {loading ? (
-                                <>
-                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                    Processando
-                                </>
-                            ) : (
-                                <>
-                                    <Undo2 className="w-4 h-4" />
-                                    Reembolsar
-                                </>
-                            )}
-                        </button>
-                    </div>
+                <div className="mt-6 flex gap-2">
+                    <button onClick={close} disabled={loading}
+                        className="h-11 flex-1 rounded-xl border border-line text-sm font-semibold text-fg hover:bg-hover">
+                        Cancelar
+                    </button>
+                    <button onClick={handleConfirmRefund} disabled={loading}
+                        className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-danger text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60">
+                        {loading && <Loader2 className="h-4 w-4 animate-spin" />} Estornar
+                    </button>
                 </div>
             </div>
         </div>

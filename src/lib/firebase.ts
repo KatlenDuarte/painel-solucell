@@ -1,7 +1,14 @@
-import { initializeApp, getApps, getApp } from "firebase/app";
-import { getAuth, onAuthStateChanged } from "firebase/auth";
-import type { User } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+// src/lib/firebase.ts
+
+import { initializeApp } from "firebase/app";
+import { getAuth } from "firebase/auth";
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  memoryLocalCache,
+  type Firestore,
+} from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyD8yO9df9lq4dzNtN36uyDkrLVhL7OP_Eg",
@@ -13,24 +20,26 @@ const firebaseConfig = {
   measurementId: "G-8XDQ79WSE1"
 };
 
-// Inicializa Firebase apenas uma vez
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+// Inicializa o Firebase
+const app = initializeApp(firebaseConfig);
 
-// Auth e Firestore
-const auth = getAuth(app);
-const db = getFirestore(app);
+// Exporta os serviços
+export const auth = getAuth(app);
 
-// Helper para pegar usuário logado e claims
-const getCurrentUserWithClaims = async (): Promise<null | { user: User; claims: any }> => {
-  return new Promise((resolve) => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      unsubscribe();
-      if (!user) return resolve(null);
-
-      const idTokenResult = await user.getIdTokenResult(true); // força atualização do token
-      resolve({ user, claims: idTokenResult.claims });
+// Cache local persistente (IndexedDB): ao reabrir o painel, os listeners
+// retomam do cache e o servidor só cobra os documentos que mudaram.
+// Se o navegador não suportar IndexedDB (ex.: aba anônima em alguns
+// navegadores), usa cache em memória para nunca impedir o funcionamento.
+function createDb(): Firestore {
+  try {
+    if (typeof indexedDB === "undefined") throw new Error("IndexedDB indisponível");
+    return initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
     });
-  });
-};
+  } catch (error) {
+    console.warn("Cache persistente indisponível, usando memória:", error);
+    return initializeFirestore(app, { localCache: memoryLocalCache() });
+  }
+}
 
-export { app, auth, db, getCurrentUserWithClaims };
+export const db = createDb();

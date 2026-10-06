@@ -1,5 +1,3 @@
-// src/services/productsService.ts
-
 import {
   collection,
   doc,
@@ -10,7 +8,9 @@ import {
   where,
   increment,
   updateDoc,
-} from "firebase/firestore";
+  limit,
+  orderBy,
+} from "../lib/firestore";
 import { db } from "../lib/firebase";
 
 export const productsCollection = collection(db, "products");
@@ -19,9 +19,13 @@ export const productsCollection = collection(db, "products");
 // Buscar produtos da loja
 // --------------------------------------------------
 export const fetchProducts = async (storeEmail: string) => {
-  if (!storeEmail) return [];
+  if (!storeEmail?.trim()) return [];
 
-  const q = query(productsCollection, where("store", "==", storeEmail));
+  const q = query(
+    productsCollection,
+    where("store", "==", storeEmail.trim())
+  );
+
   const snapshot = await getDocs(q);
 
   return snapshot.docs.map((docSnap) => ({
@@ -31,97 +35,314 @@ export const fetchProducts = async (storeEmail: string) => {
 };
 
 // --------------------------------------------------
-// Criar produto (corrigido)
+// Buscar produtos por nome
 // --------------------------------------------------
-export const addProduct = async (product: any, storeEmail: string) => {
-  if (!storeEmail) throw new Error("E-mail da loja não fornecido.");
+export const searchProducts = async (
+  storeEmail: string,
+  searchTerm: string,
+  limitResults = 15
+) => {
+  if (!storeEmail?.trim() || !searchTerm.trim()) return [];
+
+  const searchLower = searchTerm.trim().toLowerCase();
+
+  const q = query(
+    productsCollection,
+    where("store", "==", storeEmail.trim()),
+    where("nameLower", ">=", searchLower),
+    where(
+      "nameLower",
+      "<",
+      searchLower + "\uf8ff"
+    ),
+    limit(limitResults)
+  );
+
+  const snapshot = await getDocs(q);
+
+  return snapshot.docs.map((docSnap) => ({
+    id: docSnap.id,
+    ...docSnap.data(),
+  }));
+};
+
+// --------------------------------------------------
+// Criar produto
+// --------------------------------------------------
+export const addProduct = async (
+  product: any,
+  storeEmail: string
+) => {
+  if (!storeEmail?.trim()) {
+    throw new Error(
+      "E-mail da loja não fornecido."
+    );
+  }
 
   const ref = doc(productsCollection);
 
+  const stock = Number(product.stock);
+  const minStock = Number(product.minStock);
+  const price = Number(product.price);
+  const costPrice = Number(product.costPrice);
+
   const data = {
     id: ref.id,
-    store: storeEmail,
+    store: storeEmail.trim(),
 
-    // 🔥 GARANTE que NUNCA vira NaN
-    stock: Number(product.stock) >= 0 ? Number(product.stock) : 0,
-    minStock: Number(product.minStock) >= 0 ? Number(product.minStock) : 0,
-    price: Number(product.price) >= 0 ? Number(product.price) : 0,
-    costPrice: Number(product.costPrice) >= 0 ? Number(product.costPrice) : 0,
+    stock:
+      Number.isFinite(stock) && stock >= 0
+        ? stock
+        : 0,
 
-    // Strings
+    minStock:
+      Number.isFinite(minStock) && minStock >= 0
+        ? minStock
+        : 0,
+
+    price:
+      Number.isFinite(price) && price >= 0
+        ? price
+        : 0,
+
+    costPrice:
+      Number.isFinite(costPrice) &&
+      costPrice >= 0
+        ? costPrice
+        : 0,
+
     name: product.name || "",
     brand: product.brand || "",
     model: product.model || "",
     category: product.category || "",
 
-    // Busca rápida
-    nameLower: product.name?.toLowerCase() || "",
+    barcode: product.barcode
+      ? String(product.barcode).trim()
+      : null,
+
+    nameLower:
+      String(product.name || "")
+        .trim()
+        .toLowerCase(),
   };
 
   await setDoc(ref, data);
+
   return data;
 };
 
 // --------------------------------------------------
-// Atualizar produto (SEM undefined/NaN)
+// Atualizar produto
 // --------------------------------------------------
-export const updateProduct = async (id: string, data: any) => {
-  const productRef = doc(productsCollection, id);
+export const updateProduct = async (
+  id: string,
+  data: any
+) => {
+  if (!id) {
+    throw new Error(
+      "ID do produto não informado."
+    );
+  }
+
+  const productRef = doc(
+    productsCollection,
+    id
+  );
 
   const cleaned: any = {};
 
-  // 🔥 Só inclui campos que realmente foram enviados
   if (data.name !== undefined) {
     cleaned.name = data.name;
-    cleaned.nameLower = data.name.toLowerCase();
+    cleaned.nameLower = String(
+      data.name
+    )
+      .trim()
+      .toLowerCase();
   }
 
-  if (data.brand !== undefined) cleaned.brand = data.brand;
-  if (data.model !== undefined) cleaned.model = data.model;
-  if (data.category !== undefined) cleaned.category = data.category;
+  if (data.barcode !== undefined) {
+    cleaned.barcode = data.barcode
+      ? String(data.barcode).trim()
+      : null;
+  }
 
-  // 🔥 Converte números SEM NUNCA gerar NaN
-  if (data.stock !== undefined)
-    cleaned.stock = Number(data.stock) >= 0 ? Number(data.stock) : 0;
+  if (data.brand !== undefined) {
+    cleaned.brand = data.brand;
+  }
 
-  if (data.minStock !== undefined)
-    cleaned.minStock = Number(data.minStock) >= 0 ? Number(data.minStock) : 0;
+  if (data.model !== undefined) {
+    cleaned.model = data.model;
+  }
 
-  if (data.price !== undefined)
-    cleaned.price = Number(data.price) >= 0 ? Number(data.price) : 0;
+  if (data.category !== undefined) {
+    cleaned.category = data.category;
+  }
 
-  if (data.costPrice !== undefined)
-    cleaned.costPrice = Number(data.costPrice) >= 0
-      ? Number(data.costPrice)
-      : 0;
+  if (data.stock !== undefined) {
+    const value = Number(data.stock);
 
-  await updateDoc(productRef, cleaned);
-};
+    cleaned.stock =
+      Number.isFinite(value) && value >= 0
+        ? value
+        : 0;
+  }
 
-// --------------------------------------------------
-// Ajustar estoque (SEM NaN SEM ERRO)
-// --------------------------------------------------
-export const adjustStock = async (id: string, value: number, operation: "add" | "remove" | "set") => {
-  const productRef = doc(productsCollection, id);
+  if (data.minStock !== undefined) {
+    const value = Number(data.minStock);
 
-  // Garantia anti-NaN
-  const qty = Number(value);
-  if (isNaN(qty) || qty < 0) throw new Error("Quantidade inválida");
+    cleaned.minStock =
+      Number.isFinite(value) && value >= 0
+        ? value
+        : 0;
+  }
 
-  if (operation === "set") {
-    await updateDoc(productRef, { stock: qty });
+  if (data.price !== undefined) {
+    const value = Number(data.price);
+
+    cleaned.price =
+      Number.isFinite(value) && value >= 0
+        ? value
+        : 0;
+  }
+
+  if (data.costPrice !== undefined) {
+    const value = Number(
+      data.costPrice
+    );
+
+    cleaned.costPrice =
+      Number.isFinite(value) && value >= 0
+        ? value
+        : 0;
+  }
+
+  if (Object.keys(cleaned).length === 0) {
     return;
   }
 
-  await updateDoc(productRef, {
-    stock: increment(operation === "add" ? qty : -qty),
-  });
+  await updateDoc(
+    productRef,
+    cleaned
+  );
+};
+
+// --------------------------------------------------
+// Buscar produto por código de barras
+// --------------------------------------------------
+export const fetchProductByBarcode = async (
+  storeEmail: string,
+  barcode: string
+) => {
+  if (
+    !storeEmail?.trim() ||
+    !barcode?.trim()
+  ) {
+    return null;
+  }
+
+  const cleanBarcode = barcode.trim();
+
+  const q = query(
+    productsCollection,
+    where(
+      "store",
+      "==",
+      storeEmail.trim()
+    ),
+    where(
+      "barcode",
+      "==",
+      cleanBarcode
+    ),
+    limit(1)
+  );
+
+  const snapshot = await getDocs(q);
+
+  if (snapshot.empty) {
+    return null;
+  }
+
+  const docSnap = snapshot.docs[0];
+
+  return {
+    id: docSnap.id,
+    ...docSnap.data(),
+  };
+};
+
+// --------------------------------------------------
+// Ajustar estoque
+// --------------------------------------------------
+export const adjustStock = async (
+  id: string,
+  value: number,
+  operation:
+    | "add"
+    | "remove"
+    | "set"
+) => {
+  if (!id) {
+    throw new Error(
+      "ID do produto não informado."
+    );
+  }
+
+  const productRef = doc(
+    productsCollection,
+    id
+  );
+
+  const qty = Number(value);
+
+  if (
+    !Number.isFinite(qty) ||
+    qty < 0
+  ) {
+    throw new Error(
+      "Quantidade inválida."
+    );
+  }
+
+  if (operation === "set") {
+    await updateDoc(
+      productRef,
+      {
+        stock: qty,
+      }
+    );
+
+    return;
+  }
+
+  await updateDoc(
+    productRef,
+    {
+      stock: increment(
+        operation === "add"
+          ? qty
+          : -qty
+      ),
+    }
+  );
 };
 
 // --------------------------------------------------
 // Deletar produto
 // --------------------------------------------------
-export const deleteProduct = async (id: string) => {
-  const productRef = doc(productsCollection, id);
+export const deleteProduct = async (
+  id: string
+) => {
+  if (!id) {
+    throw new Error(
+      "ID do produto não informado."
+    );
+  }
+
+  const productRef = doc(
+    productsCollection,
+    id
+  );
+
   await deleteDoc(productRef);
 };

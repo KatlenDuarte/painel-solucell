@@ -38,7 +38,7 @@ export default function Modal({ onClose, children, size = "medium" }: ModalProps
 
       {/* Modal */}
       <div
-        className={`relative w-full ${sizeClasses[size]} bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 animate-scale-in max-h-[90vh] overflow-y-auto`}
+        className={`relative w-full ${sizeClasses[size]} bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 animate-scale-in max-h-[90vh] overflow-y-auto`}
       >
         <div className="p-6">
           {children}
