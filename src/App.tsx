@@ -15,6 +15,9 @@ import {
     Grid2x2,
     X,
     Loader2,
+    ChevronsUpDown,
+    Check,
+    Store,
     type LucideIcon,
 } from "lucide-react";
 
@@ -34,6 +37,7 @@ import SalesFuncionarioPage from "./screens/SalesFuncionarioPage";  // Funcioná
 import NewSaleModal from "./components/NewSaleModal";
 import ErrorBoundary from "./components/ErrorBoundary";
 import PinGate from "./components/PinGate";
+import { STORES, STORE_LABEL, switchStore, getActiveStore } from "./lib/stores";
 import { db } from "./lib/firebase";
 import { doc, getDoc, setDoc } from "./lib/firestore";
 
@@ -93,11 +97,6 @@ const VALID_STORES = [
     "teste@solucell.com",
 ];
 
-const STORE_LABEL: Record<string, string> = {
-    "vilaesportiva@solucell.com": "Vila Esportiva",
-    "jardimdagloria@solucell.com": "Jardim da Glória",
-    "teste@solucell.com": "Teste",
-};
 
 const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
     {
@@ -152,6 +151,7 @@ function App() {
     const [authState, setAuthState] = useState<AuthState>(() => (isDemoMode() ? "signed-in" : "checking"));
     const [authError, setAuthError] = useState("");
     const [moreOpen, setMoreOpen] = useState(false);
+    const [storeMenuOpen, setStoreMenuOpen] = useState(false);
     // Recarregou a página durante a demonstração: continua na demo
     const [currentUser, setCurrentUser] = useState<UserInfo>(() => {
         if (isDemoMode()) { installDemoPrintStub(); return DEMO_USER_INFO; }
@@ -246,6 +246,8 @@ function App() {
     const mobilePrimary = allowedItems.filter(item => MOBILE_PRIMARY.includes(item.id));
     const currentInPrimary = MOBILE_PRIMARY.includes(currentPage);
     const userName = currentUser.email.split("@")[0];
+    const storeLabel = STORE_LABEL[currentUser.email] || userName;
+    const otherStores = STORES.filter(st => st.email !== currentUser.email);
 
     const renderPage = () => {
         switch (currentPage) {
@@ -286,7 +288,7 @@ function App() {
     }
 
     if (authState === "signed-out") {
-        return <LoginPage externalError={authError} onClearError={() => setAuthError("")} />;
+        return <LoginPage externalError={authError} onClearError={() => setAuthError("")} defaultEmail={getActiveStore()} />;
     }
 
     return (
@@ -297,7 +299,32 @@ function App() {
                 <aside className="hidden lg:flex fixed inset-y-0 left-0 w-[264px] flex-col bg-nav text-nav-fg z-40">
                     <div className="h-[72px] px-6 flex items-center gap-3 shrink-0">
                         <img src={logo} className="h-8 w-auto object-contain" alt="Solucell" />
-                        <span className="rounded-md bg-white/10 px-2 py-0.5 text-[11px] font-medium text-white/70">{demoActive ? "Demonstração" : STORE_LABEL[currentUser.email] || currentUser.email.split("@")[0]}</span>
+                        {demoActive ? (
+                            <span className="rounded-md bg-white/10 px-2 py-0.5 text-[11px] font-medium text-white/70">Demonstração</span>
+                        ) : (
+                            <div className="relative">
+                                <button onClick={() => setStoreMenuOpen(o => !o)} aria-haspopup="menu" aria-expanded={storeMenuOpen} title="Trocar de loja"
+                                    className="inline-flex items-center gap-1 rounded-md bg-white/10 px-2 py-1 text-[11px] font-medium text-white/80 hover:bg-white/15">
+                                    {storeLabel} <ChevronsUpDown className="h-3 w-3 opacity-70" />
+                                </button>
+                                {storeMenuOpen && (
+                                    <>
+                                        <div className="fixed inset-0 z-40" onClick={() => setStoreMenuOpen(false)} />
+                                        <div role="menu" className="absolute left-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-xl border border-line bg-surface p-1 text-fg shadow-[var(--ui-shadow-lg)]">
+                                            <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-fg-faint">Trocar de loja</p>
+                                            {STORES.map(st => (
+                                                <button key={st.email} role="menuitem" onClick={() => { setStoreMenuOpen(false); if (st.email !== currentUser.email) switchStore(st.email, currentUser.email); }}
+                                                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-hover">
+                                                    <Store className="h-4 w-4 text-fg-subtle" />
+                                                    <span className="flex-1">{st.label}</span>
+                                                    {st.email === currentUser.email && <Check className="h-4 w-4 text-primary" />}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        )}
                     </div>
 
                     <div className="px-4 pb-4">
@@ -368,6 +395,11 @@ function App() {
                     {/* Barra superior (celular/tablet) */}
                     <header className="lg:hidden sticky top-0 z-30 h-14 flex items-center gap-3 px-4 bg-nav text-white pt-[env(safe-area-inset-top)]">
                         <img src={logo} className="h-6 w-auto object-contain" alt="Solucell" />
+                        {!demoActive && (
+                            <button onClick={() => setMoreOpen(true)} className="inline-flex items-center gap-1 rounded-md bg-white/10 px-2 py-0.5 text-[11px] font-medium text-white/80">
+                                {storeLabel} <ChevronsUpDown className="h-3 w-3 opacity-70" />
+                            </button>
+                        )}
                         <span className="flex-1" />
                         <ThemeToggle className="text-white/70 hover:bg-white/10" />
                         <button
@@ -431,7 +463,7 @@ function App() {
                                 </div>
                                 <div className="min-w-0 flex-1">
                                     <p className="text-base font-semibold text-fg capitalize truncate">{userName}</p>
-                                    <p className="text-sm text-fg-subtle">{currentUser.role}</p>
+                                    <p className="text-sm text-fg-subtle">{demoActive ? currentUser.role : `Loja ${storeLabel}`}</p>
                                 </div>
                                 <button onClick={() => setMoreOpen(false)} className="w-9 h-9 rounded-xl flex items-center justify-center text-fg-subtle hover:bg-hover" aria-label="Fechar">
                                     <X className="w-5 h-5" />
@@ -453,6 +485,16 @@ function App() {
                                     );
                                 })}
                             </div>
+                            {!demoActive && otherStores.length > 0 && (
+                                <div className="mt-4 space-y-2">
+                                    {otherStores.map(st => (
+                                        <button key={st.email} onClick={() => switchStore(st.email, currentUser.email)}
+                                            className="w-full h-12 rounded-2xl border border-line flex items-center justify-center gap-2 text-sm font-medium text-fg hover:bg-hover">
+                                            <Store className="w-4 h-4" /> Trocar para {st.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
                             <button
                                 onClick={handleLogout}
                                 className="mt-4 w-full h-12 rounded-2xl border border-line flex items-center justify-center gap-2 text-sm font-medium text-danger hover:bg-danger-soft"

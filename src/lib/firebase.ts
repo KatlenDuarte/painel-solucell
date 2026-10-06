@@ -2,6 +2,7 @@
 
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
+import { appNameForActiveStore } from "./stores";
 import {
   initializeFirestore,
   persistentLocalCache,
@@ -20,8 +21,9 @@ const firebaseConfig = {
   measurementId: "G-8XDQ79WSE1"
 };
 
-// Inicializa o Firebase
-const app = initializeApp(firebaseConfig);
+// Inicializa o Firebase: uma instância por loja (sessões separadas para a troca rápida)
+const appName = appNameForActiveStore();
+const app = appName ? initializeApp(firebaseConfig, appName) : initializeApp(firebaseConfig);
 
 // Exporta os serviços
 export const auth = getAuth(app);

@@ -9,6 +9,8 @@ import {
 // Firebase
 import { db } from "../lib/firebase";
 import { collection, serverTimestamp, doc, runTransaction } from "../lib/firestore";
+import { addToFiado } from "../lib/saleActions";
+import { formatBRL } from "../lib/format";
 import { useStoreData } from "../contexts/StoreDataContext";
 
 // --- Interfaces ---
@@ -91,7 +93,22 @@ const NewSaleModal: React.FC<NewSaleModalProps> = ({ onClose, storeEmail, onSale
     const [lossReason, setLossReason] = useState("");
 
     // Estoque em tempo real pelo listener compartilhado (sem reler a coleção a cada abertura)
-    const { products: productDocs } = useStoreData();
+    const { products: productDocs, sales: salesDocs } = useStoreData();
+
+    // Fiado: cliente que já está devendo pode ter a compra somada na mesma conta
+    const [joinFiado, setJoinFiado] = useState<{ id: string; nome: string; total: number } | null>(null);
+    const openDebtors = useMemo(() => {
+        const q = payments.fiado.nome.trim().toLowerCase();
+        if (q.length < 2) return [];
+        const list: { id: string; nome: string; total: number }[] = [];
+        salesDocs.forEach(d => {
+            const s = d.data();
+            if (s.status !== "pending") return;
+            const nome = String(s.fiado?.nome || s.clientName || "");
+            if (nome && nome.toLowerCase().includes(q)) list.push({ id: d.id, nome, total: Number(s.total) || Number(s.fiado?.valor) || 0 });
+        });
+        return list.slice(0, 4);
+    }, [salesDocs, payments.fiado.nome]);
     const stock = useMemo<Product[]>(
         () => productDocs.map((d) => ({ id: d.id, ...d.data() } as Product)),
         [productDocs]
@@ -189,6 +206,19 @@ const NewSaleModal: React.FC<NewSaleModalProps> = ({ onClose, storeEmail, onSale
                 timestamp: serverTimestamp(),
                 type: activeTab,
             };
+
+            if (paymentMethod === "Fiado" && activeTab === 'venda' && joinFiado) {
+                if (selectedProducts.length === 0) throw new Error("Adicione ao menos um produto.");
+                const added = await addToFiado(
+                    joinFiado.id,
+                    selectedProducts.map(i => ({ id: i.id.startsWith("avulso-") ? "" : i.id, name: i.name, price: i.price, saleQty: i.saleQty })),
+                    discount
+                );
+                alert(`Somado ${formatBRL(added)} na conta de ${joinFiado.nome}. Agora deve ${formatBRL(joinFiado.total + added)}.`);
+                onSaleComplete();
+                onClose();
+                return;
+            }
 
             if (paymentMethod === "Fiado" && activeTab !== 'perda') {
                 if (!payments.fiado.nome || payments.fiado.valor <= 0) {
@@ -630,7 +660,25 @@ const NewSaleModal: React.FC<NewSaleModalProps> = ({ onClose, storeEmail, onSale
                                     {/* Sub-interface para Fiado */}
                                     {paymentMethod === "Fiado" && (
                                         <div className="bg-slate-950/50 border border-slate-800 p-3 rounded-xl space-y-2.5">
-                                            <input className="w-full bg-slate-900 border border-slate-800 p-2 rounded text-xs text-slate-50 outline-none" placeholder="Nome do Devedor" value={payments.fiado.nome} onChange={e => setPayments(p => ({ ...p, fiado: { ...p.fiado, nome: e.target.value } }))} />
+                                            <input className="w-full bg-slate-900 border border-slate-800 p-2 rounded text-xs text-slate-50 outline-none" placeholder="Nome do Devedor" value={payments.fiado.nome} onChange={e => { setJoinFiado(null); setPayments(p => ({ ...p, fiado: { ...p.fiado, nome: e.target.value } })); }} />
+                                            {activeTab === 'venda' && joinFiado && (
+                                                <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-700/50 bg-emerald-950/40 px-3 py-2 text-xs text-emerald-200">
+                                                    <span>Vai somar na conta de <b>{joinFiado.nome}</b> (deve {formatBRL(joinFiado.total)} → {formatBRL(joinFiado.total + totalFinalCalculado)})</span>
+                                                    <button type="button" onClick={() => setJoinFiado(null)} className="shrink-0 underline">Abrir fiado novo</button>
+                                                </div>
+                                            )}
+                                            {activeTab === 'venda' && !joinFiado && openDebtors.length > 0 && (
+                                                <div className="space-y-1">
+                                                    <p className="text-[11px] text-slate-400">Já está devendo? Some na mesma conta:</p>
+                                                    {openDebtors.map(d => (
+                                                        <button key={d.id} type="button" onClick={() => setJoinFiado(d)}
+                                                            className="flex w-full items-center justify-between rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-left text-xs text-slate-200 hover:border-emerald-600">
+                                                            <span className="truncate">Somar na conta de <b>{d.nome}</b></span>
+                                                            <span className="shrink-0 font-mono">deve {formatBRL(d.total)}</span>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
                                             <input className="w-full bg-slate-900 border border-slate-800 p-2 rounded text-xs text-slate-50 outline-none" placeholder="WhatsApp (Opcional)" value={payments.fiado.whatsapp} onChange={e => setPayments(p => ({ ...p, fiado: { ...p.fiado, whatsapp: e.target.value } }))} />
                                             <div className="flex gap-2">
                                                 <input type="date" className="flex-1 bg-slate-900 border border-slate-800 p-2 rounded text-xs text-slate-300 outline-none" value={payments.fiado.data} onChange={e => setPayments(p => ({ ...p, fiado: { ...p.fiado, data: e.target.value } }))} />

@@ -4,8 +4,7 @@
 
 import React, { useState } from "react";
 import { Undo2, X, PackagePlus, Loader2 } from "lucide-react";
-import { doc, runTransaction, serverTimestamp } from "../lib/firestore";
-import { db } from "../lib/firebase";
+import { refundSale } from "../lib/saleActions";
 
 interface RefundItem { id?: string; name: string; saleQty: number }
 
@@ -17,27 +16,13 @@ interface RefundConfirmationModalProps {
     onRefundSuccess: (saleId: string) => void;
 }
 
-/** Agrupa as quantidades por produto (itens avulsos e de manutenção não têm estoque). */
-function stockItems(items: unknown): Map<string, number> {
-    const map = new Map<string, number>();
-    if (!Array.isArray(items)) return map;
-    for (const raw of items) {
-        const it = raw as { id?: unknown; saleQty?: unknown; quantity?: unknown };
-        const id = it?.id ? String(it.id) : "";
-        if (!id || id.startsWith("avulso-")) continue;
-        const qty = Number(it.saleQty ?? it.quantity ?? 1) || 0;
-        if (qty > 0) map.set(id, (map.get(id) || 0) + qty);
-    }
-    return map;
-}
-
 const RefundConfirmationModal: React.FC<RefundConfirmationModalProps> = ({ saleId, items, onClose, onRefundSuccess }) => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
 
     if (!saleId) return null;
 
-    const returning = (items || []).filter(i => i.id && !i.id.startsWith("avulso-"));
+    const returning = (items || []).filter(i => i.id && !i.id.startsWith("avulso-") && !i.id.startsWith("non-catalog-"));
 
     const close = () => { if (!loading) { setError(""); onClose(); } };
 
@@ -45,33 +30,7 @@ const RefundConfirmationModal: React.FC<RefundConfirmationModalProps> = ({ saleI
         setLoading(true);
         setError("");
         try {
-            await runTransaction(db, async (tx) => {
-                const saleRef = doc(db, "sales", saleId);
-                const saleSnap = await tx.get(saleRef);
-                if (!saleSnap.exists()) throw new Error("Venda não encontrada.");
-                const sale = saleSnap.data();
-                if (sale.status === "refunded") throw new Error("Esta venda já foi estornada.");
-                if (sale.status === "cancelled") throw new Error("Esta venda está cancelada.");
-
-                // 1) Lê todos os produtos antes de gravar (exigência das transações do Firestore)
-                const toRestore = stockItems(sale.items);
-                const products: { ref: ReturnType<typeof doc>; stock: number; qty: number }[] = [];
-                for (const [productId, qty] of toRestore) {
-                    const ref = doc(db, "products", productId);
-                    const snap = await tx.get(ref);
-                    if (!snap.exists()) continue; // produto excluído: não há estoque para devolver
-                    products.push({ ref, stock: Number(snap.data().stock) || 0, qty });
-                }
-
-                // 2) Devolve ao estoque e marca a venda como estornada
-                for (const p of products) tx.update(p.ref, { stock: p.stock + p.qty });
-                tx.update(saleRef, {
-                    status: "refunded",
-                    previousStatus: sale.status ?? null,
-                    refundedAt: serverTimestamp(),
-                    stockRestored: products.map(p => ({ id: p.ref.id, qty: p.qty })),
-                });
-            });
+            await refundSale(saleId);
 
             onRefundSuccess(saleId);
             onClose();

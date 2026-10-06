@@ -3,12 +3,14 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../lib/firebase";
 import { Sun, Moon, Check, Loader2, PlayCircle } from "lucide-react";
 import { useTheme } from "../contexts/ThemeContext";
+import { STORES, STORE_LABEL } from "../lib/stores";
 import logo from "../assets/logo-solucelll.png";
 
 interface LoginPageProps {
   externalError?: string;
   onClearError?: () => void;
   onDemo?: () => void;
+  defaultEmail?: string;
 }
 
 const AUTH_ERRORS: Record<string, string> = {
@@ -22,8 +24,8 @@ const AUTH_ERRORS: Record<string, string> = {
   "auth/network-request-failed": "Sem conexão com o servidor. Verifique a internet e tente novamente.",
 };
 
-export default function LoginPage({ externalError, onClearError, onDemo }: LoginPageProps) {
-  const [email, setEmail] = useState("");
+export default function LoginPage({ externalError, onClearError, onDemo, defaultEmail }: LoginPageProps) {
+  const [email, setEmail] = useState(defaultEmail || "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -82,7 +84,19 @@ export default function LoginPage({ externalError, onClearError, onDemo }: Login
         <form onSubmit={handleSubmit} className="w-full max-w-sm">
           <img src={logo} alt="Solucell" className="mb-10 h-9 w-auto object-contain lg:hidden" />
           <h2 className="text-2xl font-semibold tracking-tight text-fg">Entrar no painel</h2>
-          <p className="mt-1.5 text-sm text-fg-subtle">Use o e-mail e a senha da loja.</p>
+          <p className="mt-1.5 text-sm text-fg-subtle">
+            {defaultEmail && STORE_LABEL[defaultEmail]
+              ? <>Entre na loja <b className="text-fg">{STORE_LABEL[defaultEmail]}</b>. A senha só é pedida na primeira vez; depois a troca entre as lojas é direta.</>
+              : "Escolha a loja e digite a senha."}
+          </p>
+          <div className="mt-5 grid grid-cols-2 gap-2">
+            {STORES.map(st => (
+              <button key={st.email} type="button" onClick={() => setEmail(st.email)}
+                className={`h-10 rounded-lg border text-sm font-medium transition-colors ${email === st.email ? "border-primary/50 bg-primary-soft text-primary-text" : "border-line text-fg-muted hover:bg-hover"}`}>
+                {st.label}
+              </button>
+            ))}
+          </div>
 
           <div className="mt-8 space-y-4">
             <div>

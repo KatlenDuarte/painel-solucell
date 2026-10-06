@@ -13,7 +13,8 @@ import {
     Landmark,
     CheckCircle2,
     Users,
-    Phone
+    Phone,
+    Plus
 } from "lucide-react";
 import { Page, PageHeader, Card, StatCard, Button, IconButton, Badge, Segmented, SearchInput, EmptyState, LoadingState } from "../components/ui";
 import { formatBRL, initials } from "../lib/format";
@@ -24,6 +25,8 @@ import {
     serverTimestamp
 } from "../lib/firestore";
 import QuitarFiadoModal from "../components/QuitarFiadoModal";
+import AddToFiadoModal from "../components/AddToFiadoModal";
+import { refundSale } from "../lib/saleActions";
 
 import { db } from "../lib/firebase";
 import { useStoreData } from "../contexts/StoreDataContext";
@@ -39,7 +42,13 @@ interface FiadoSale {
     note?: string;
     status: string;
     timestamp?: any;
+    launches: number;
 }
+
+// Fiado quitado: "fiado_quitado" (painel novo) ou "completed" com marca de fiado (painel anterior)
+const isPaidFiado = (data: any) =>
+    data.status === "fiado_quitado" ||
+    (data.status === "completed" && (data.isFiado === true || data.paymentMethod === "Fiado (Quitado)"));
 
 export default function FiadoPage() {
 
@@ -55,6 +64,7 @@ export default function FiadoPage() {
 
     const [selectedFiado, setSelectedFiado] =
         useState<FiadoSale | null>(null);
+    const [launching, setLaunching] = useState<FiadoSale | null>(null);
 
     const [selectedMonth, setSelectedMonth] =
         useState<string>("all");
@@ -62,17 +72,12 @@ export default function FiadoPage() {
     // Fiados derivados das vendas em tempo real (StoreDataContext): trocar de aba
     // ou quitar/cancelar um fiado não gera nova leitura da coleção.
     const fiados = useMemo<FiadoSale[]>(() => {
-            const statusFilter =
-                activeTab === "pendentes"
-                    ? "pending"
-                    : "fiado_quitado";
-
             const list: FiadoSale[] = [];
 
             salesDocs.forEach((docSnap) => {
 
                 const data = docSnap.data();
-                if (data.status !== statusFilter) return;
+                if (activeTab === "pendentes" ? data.status !== "pending" : !isPaidFiado(data)) return;
 
                 const isFiado =
                     data.paymentMethod === "Fiado" ||
@@ -127,7 +132,9 @@ export default function FiadoPage() {
 
                         status: data.status,
 
-                        timestamp: data.timestamp
+                        timestamp: data.timestamp,
+
+                        launches: Array.isArray(data.fiadoLancamentos) ? data.fiadoLancamentos.length : 0
                     });
                 }
 
@@ -224,24 +231,21 @@ export default function FiadoPage() {
 
         if (
             !confirm(
-                "Tem certeza que deseja CANCELAR este fiado?"
+                "Tem certeza que deseja CANCELAR este fiado? Os produtos voltam para o estoque."
             )
         ) return;
 
         try {
 
-            await updateDoc(doc(db, "sales", id), {
-                status: "cancelled",
-                cancelledAt: serverTimestamp()
-            });
+            await refundSale(id, "cancelled");
 
-            alert("Fiado cancelado.");
+            alert("Fiado cancelado e produtos devolvidos ao estoque.");
 
             fetchFiados();
 
         } catch (e) {
 
-            alert("Erro ao cancelar.");
+            alert(e instanceof Error ? e.message : "Erro ao cancelar.");
 
         }
 
@@ -265,7 +269,7 @@ export default function FiadoPage() {
                 pendingTotal += Number(data.total) || Number(data.fiado?.valor) || 0;
                 const ms = data.timestamp?.toMillis?.();
                 if (ms) oldest = Math.max(oldest, Math.floor((now - ms) / 86400000));
-            } else if (data.status === "fiado_quitado") {
+            } else if (isPaidFiado(data)) {
                 paidCount++;
             }
         });
@@ -306,6 +310,19 @@ export default function FiadoPage() {
                         setSelectedFiado(null);
                         fetchFiados();
                     }} clientName={""} />
+            )}
+
+            {launching && (
+                <AddToFiadoModal
+                    saleId={launching.id}
+                    clientName={launching.clientName}
+                    currentTotal={launching.total}
+                    onClose={() => setLaunching(null)}
+                    onDone={(added) => {
+                        setLaunching(null);
+                        alert(`Lançado ${formatBRL(added)} na conta de ${launching.clientName}.`);
+                    }}
+                />
             )}
 
             <PageHeader
@@ -380,6 +397,7 @@ export default function FiadoPage() {
                                                     {sale.items.map((item, i) => (
                                                         <Badge key={i}><span className="text-fg-subtle">{item.qty}×</span> {item.name}</Badge>
                                                     ))}
+                                                    {sale.launches > 0 && <Badge tone="info">+{sale.launches} {sale.launches === 1 ? "lançamento" : "lançamentos"}</Badge>}
                                                 </div>
                                                 <div className="flex items-start gap-2 pt-1">
                                                     <textarea
@@ -415,6 +433,7 @@ export default function FiadoPage() {
                                                 )}
                                                 {activeTab === "pendentes" && (
                                                     <>
+                                                        <Button icon={Plus} onClick={() => setLaunching(sale)}>Lançar</Button>
                                                         <Button variant="primary" icon={Check} onClick={() => openQuitarModal(sale)}>Quitar</Button>
                                                         <IconButton icon={X} label="Cancelar fiado" tone="danger" onClick={() => handleCancelFiado(sale.id)} />
                                                     </>
