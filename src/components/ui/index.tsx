@@ -232,11 +232,19 @@ export function SearchInput({ value, onChange, placeholder, className, icon: Ico
         <div className={cx("relative", className)}>
             <Icon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-faint" />
             <input
+                type="search"
                 value={value}
                 onChange={e => onChange(e.target.value)}
                 placeholder={placeholder}
-                className="ui-input pl-9"
+                aria-label={placeholder || "Buscar"}
+                className="ui-input pl-9 pr-9 [&::-webkit-search-cancel-button]:hidden"
             />
+            {value && (
+                <button type="button" onClick={() => onChange("")} aria-label="Limpar busca"
+                    className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-fg-faint hover:bg-hover hover:text-fg">
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                </button>
+            )}
         </div>
     );
 }

@@ -275,7 +275,9 @@ export default function Sales({ storeEmail }: SalesProps) {
             .replace(/[\u0300-\u036f]/g, "")
             .toUpperCase();
 
-    const finalFilteredSales = filteredByPeriod.filter((sale) => {
+    // Com algo digitado na busca, procura em TODAS as vendas carregadas (não só no período)
+    const searching = searchTerm.trim() !== "";
+    const finalFilteredSales = (searching ? sales : filteredByPeriod).filter((sale) => {
         // Filtro do Card Clicado (Verifica tanto o payment fixo quanto a lista de múltiplos pagamentos)
         if (selectedMethodCard) {
             const searchMap: Record<string, string> = { PIX: "PIX", CARTAO: "CARTAO", DINHEIRO: "DINHEIRO" };
@@ -293,10 +295,18 @@ export default function Sales({ storeEmail }: SalesProps) {
         }
 
         // Filtro de Busca por Input
-        const search = searchTerm.toLowerCase();
-        return search === "" ||
-            sale.items.some(i => i.name.toLowerCase().includes(search)) ||
-            sale.clientName?.toLowerCase().includes(search);
+        const search = searchTerm.trim().toLowerCase();
+        if (search === "") return true;
+        const digits = search.replace(/[^\d,]/g, "").replace(",", ".");
+        const valueMatch = /\d/.test(search) && (
+            sale.total.toFixed(2).includes(digits) ||
+            formatBRL(sale.total).toLowerCase().includes(search)
+        );
+        return sale.items.some(i => i.name.toLowerCase().includes(search)) ||
+            (sale.clientName || "").toLowerCase().includes(search) ||
+            (sale.payment || "").toLowerCase().includes(search) ||
+            sale.id.toLowerCase().includes(search) ||
+            valueMatch;
     });
 
     const handleCardClick = (cardType: "PIX" | "CARTAO" | "DINHEIRO" | "TOTAL") => {
@@ -408,8 +418,16 @@ export default function Sales({ storeEmail }: SalesProps) {
 
             <Card padded={false} className="overflow-hidden">
                 {/* Barra de filtros */}
+                <div className="border-b border-line p-4 pb-0">
+                    <SearchInput icon={Search} value={searchTerm} onChange={setSearchTerm} placeholder="Buscar venda: produto, cliente, valor ou forma de pagamento" className="w-full" />
+                    {searching && (
+                        <p className="mt-2 text-xs text-fg-subtle">
+                            Buscando em todas as vendas dos últimos 120 dias · {finalFilteredSales.length} {finalFilteredSales.length === 1 ? "resultado" : "resultados"}
+                        </p>
+                    )}
+                </div>
                 <div className="flex flex-col gap-3 border-b border-line p-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className={`flex flex-wrap items-center gap-2 ${searching ? "opacity-50" : ""}`}>
                         <Segmented
                             value={filter}
                             onChange={(f) => { setFilter(f); setSelectedMethodCard(null); }}
@@ -434,7 +452,6 @@ export default function Sales({ storeEmail }: SalesProps) {
                             </Badge>
                         )}
                     </div>
-                    <SearchInput icon={Search} value={searchTerm} onChange={setSearchTerm} placeholder="Buscar item ou cliente..." className="w-full lg:w-72" />
                 </div>
 
                 {isLoading ? (
